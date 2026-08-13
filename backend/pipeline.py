@@ -796,8 +796,12 @@ async def render_pdf(
                 } catch (e) {
                   svg = '';
                 }
-                const bad = /mermaid\s+version|syntax error|parse error|error rendering/i.test(svg);
-                el.innerHTML = (bad || !svg) ? buildFallbackSvg(el.id, def) : svg;
+                // Check for error states: specific error text, doubled chars, or too many raw text elements
+                const hasErrorText = /mermaid\s+version|syntax error|parse error|error rendering/i.test(svg);
+                const hasDoubledChars = /SySynnttaaxx|eerrrroorr|vveerrssiioonn/i.test(svg);
+                const textCount = (svg.match(/<text/g) || []).length;
+                const bad = hasErrorText || hasDoubledChars || textCount > 15 || !svg;
+                el.innerHTML = bad ? buildFallbackSvg(el.id, def) : svg;
               }
             })()""")
 
