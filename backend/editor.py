@@ -11,8 +11,8 @@ import re
 import book as bookmod
 
 
-INTENT_HEADING_SM = re.compile(r"(smaller|shrink|shorter|lower)\s+(the\s+)?(heading|title)|heading.*(smaller|shrink)|smaller.*(heading|title)", re.I)
-INTENT_HEADING_LG = re.compile(r"(bigger|larger|big|largest|louder)\s+(the\s+)?(heading|title)|heading.*(bigger|larger)", re.I)
+INTENT_HEADING_SM = re.compile(r"(smaller|shrink|shorter|lower)\s+(the\s+)?(heading|title)|heading.*(smaller|shrink)|smaller.*(heading|title)|make\s+(the\s+)?(heading|title)\s+(smaller|shrink|shorter)|make\s+heading\s+smaller", re.I)
+INTENT_HEADING_LG = re.compile(r"(bigger|larger|big|largest|louder)\s+(the\s+)?(heading|title)|heading.*(bigger|larger)|make\s+(the\s+)?(heading|title)\s+(bigger|larger|big)|make\s+heading\s+bigger", re.I)
 INTENT_DIAGRAM = re.compile(r"add.*(diagram|figure|visual|chart|mermaid)|(diagram|visual|chart).*(add|include|needs?|want)", re.I)
 INTENT_REMOVE_DIAGRAM = re.compile(r"(remove|delete|drop|take out).*(diagram|figure|visual|chart)|(diagram|figure|visual|chart).*(remove|delete|drop)", re.I)
 INTENT_CODE = re.compile(r"add.*(code|example|sample|snippet)|(code|example|snippet).*(add|include|needs?|want)", re.I)
@@ -77,10 +77,12 @@ def apply_comment(book: dict, comment: str) -> dict:
 
     for idx in targets:
         sec = sections[idx]
-        before = [b.get("text", b.get("code", "")) for b in sec["blocks"]]
+        before_blocks = [b.get("text", b.get("code", "")) for b in sec["blocks"]]
+        before_scale = sec.get("title_scale")
         did = _apply_to_section(sec, c, idx)
-        after = [b.get("text", b.get("code", "")) for b in sec["blocks"]]
-        if did and before != after:
+        after_blocks = [b.get("text", b.get("code", "")) for b in sec["blocks"]]
+        after_scale = sec.get("title_scale")
+        if did and (before_blocks != after_blocks or before_scale != after_scale):
             changed.append(idx)
 
     if not changed:

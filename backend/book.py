@@ -357,12 +357,13 @@ def count_pages(book: dict, template: dict) -> int:
 
 
 def _trim_paragraph(block: dict) -> bool:
-    """Keep the first ~2 sentences of a paragraph. Returns True if changed."""
+    """Keep the first 1-2 sentences of a paragraph. Returns True if changed."""
     text = block.get("text", "")
     sentences = re.split(r"(?<=[.!?])\s+", text.strip())
-    if len(sentences) <= 2:
+    if len(sentences) <= 1:
         return False
-    block["text"] = " ".join(sentences[:2])
+    keep = max(1, len(sentences) // 2)
+    block["text"] = " ".join(sentences[:keep])
     return True
 
 
