@@ -155,6 +155,20 @@ OTHER RULES:
 - Total content should fill roughly <<TARGET_PAGES>> pages"""
 
 
+def _is_retryable(error_msg: str) -> bool:
+    """Check if a Gemini API error is retryable (rate limits, quota, server overload)."""
+    msg = error_msg.lower()
+    return any(
+        token in msg
+        for token in [
+            "429", "503",
+            "resource_exhausted", "unavailable",
+            "rate", "quota", "overloaded",
+            "timeout", "connection",
+        ]
+    )
+
+
 def call_gemini(content: str, theme: str, max_retries: int = 5) -> str:
     last_error = None
     tried_keys = set()
