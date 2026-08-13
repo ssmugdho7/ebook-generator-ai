@@ -260,7 +260,7 @@ def generate_book_structure(content: str, template_id: str, target_pages: int) -
         "subtitle": f"A visual, story-driven learning guide ({template_id})",
         "template_id": template_id,
         "target_pages": target_pages,
-        "sections": [{"title": f"Section {i + 1}", "blocks": blocks}]
+        "sections": [{"title": title or "Ebook", "blocks": blocks}]
         if blocks
         else [],
     }
