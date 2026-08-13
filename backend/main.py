@@ -66,7 +66,7 @@ Hard rules:
 - Tables go in native markdown, not code fences
 - No ~~strikethrough~~ or raw HTML
 - Target: 4000-6000 words spread across many short sections
-- The reader should finish and think "that was actually enjoyable to read""""
+- The reader should finish and think "that was actually enjoyable to read" """
 
 
 class GenerateRequest(BaseModel):
