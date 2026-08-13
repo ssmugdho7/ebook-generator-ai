@@ -1,19 +1,43 @@
 @import "tailwindcss";
 
 :root {
+  --background: #ffffff;
+  --foreground: #1e293b;
+  --card: #f8fafc;
+  --card-border: #e2e8f0;
+  --text-muted: #64748b;
+  --accent: #3b82f6;
+  --accent-soft: #eff6ff;
+}
+
+.dark {
   --background: #0a0a0f;
   --foreground: #e2e8f0;
+  --card: #0f172a;
+  --card-border: #1e293b;
+  --text-muted: #94a3b8;
+  --accent: #3b82f6;
+  --accent-soft: #1e3a5f;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-border: var(--card-border);
+  --color-text-muted: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
 * {
   scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 #f1f5f9;
+}
+
+.dark * {
   scrollbar-color: #334155 #0f172a;
 }
 
@@ -23,15 +47,27 @@
 }
 
 *::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+.dark *::-webkit-scrollbar-track {
   background: #0f172a;
 }
 
 *::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: #cbd5e1;
   border-radius: 3px;
 }
 
+.dark *::-webkit-scrollbar-thumb {
+  background: #334155;
+}
+
 *::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.dark *::-webkit-scrollbar-thumb:hover {
   background: #475569;
 }
 
@@ -43,15 +79,24 @@ body {
 
 ::selection {
   background: rgba(59, 130, 246, 0.3);
-  color: white;
+  color: inherit;
 }
 
 textarea {
   scrollbar-width: thin;
+  scrollbar-color: #94a3b8 #f1f5f9;
+}
+
+.dark textarea {
   scrollbar-color: #475569 #1e293b;
 }
 
 select option {
+  background: #ffffff;
+  color: #1e293b;
+}
+
+.dark select option {
   background: #1e293b;
   color: #e2e8f0;
 }
