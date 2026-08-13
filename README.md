@@ -1,36 +1,87 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AI Ebook Generator
+
+Transform rough coding concepts and messy code snippets into publication-ready ebooks using AI.
+
+## Features
+
+- **Rich Input Area** — Paste coding concepts, code snippets, and rough notes
+- **Theme Selection** — Choose from Academic Textbook, Modern Tech Blog, or Dark Mode Minimalist
+- **Streaming Generation** — Watch your ebook build in real-time with animated loading states
+- **Mermaid Diagrams** — Automatically renders flowcharts and diagrams from AI-generated mermaid syntax
+- **PDF Download** — Export your finished ebook as a styled PDF
+- **Markdown Preview** — Beautiful rendered preview with syntax-highlighted code blocks
+
+## Tech Stack
+
+| Layer    | Technology                       |
+| -------- | -------------------------------- |
+| Frontend | Next.js, React, TypeScript, Tailwind CSS |
+| Backend  | Python, FastAPI, OpenAI API      |
+| Diagrams | Mermaid.js                       |
+| PDF      | WeasyPrint (Python)              |
 
 ## Getting Started
 
-First, run the development server:
+### 1. Backend Setup
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cd backend
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+# Edit .env and add your OpenAI API key
+uvicorn main:app --reload --port 8000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 2. Frontend Setup
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm install
+npm run dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 3. Open
 
-## Learn More
+Visit [http://localhost:3000](http://localhost:3000)
 
-To learn more about Next.js, take a look at the following resources:
+## Quick Start Scripts
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+# Terminal 1 — Backend
+./start-backend.sh
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+# Terminal 2 — Frontend
+./start-frontend.sh
+```
 
-## Deploy on Vercel
+## Environment Variables
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+| Variable              | Description                  |
+| --------------------- | ---------------------------- |
+| `OPENAI_API_KEY`      | Your OpenAI API key          |
+| `NEXT_PUBLIC_API_URL` | Backend URL (default: `http://localhost:8000`) |
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Project Structure
+
+```
+ebook-writer/
+├── src/
+│   ├── app/
+│   │   ├── layout.tsx          # Root layout
+│   │   ├── page.tsx            # Main page
+│   │   └── globals.css         # Global styles
+│   ├── components/
+│   │   ├── MarkdownPreview.tsx  # Markdown renderer with mermaid
+│   │   ├── MermaidDiagram.tsx   # Mermaid chart component
+│   │   └── LoadingSpinner.tsx   # Animated spinner
+│   └── lib/
+│       └── api.ts              # API client functions
+├── backend/
+│   ├── main.py                 # FastAPI server
+│   ├── requirements.txt        # Python dependencies
+│   └── .env.example            # Env template
+├── start-backend.sh
+├── start-frontend.sh
+└── README.md
+```
