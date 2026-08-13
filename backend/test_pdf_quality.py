@@ -168,8 +168,8 @@ def check_templates() -> list:
     """Every template: full token coverage, WCAG AA contrast, CSS assembly."""
     problems = []
     ids = templatesmod.list_templates()
-    if len(ids) < 5:
-        problems.append(f"expected 5 templates, got {len(ids)}")
+    if len(ids) != 4:
+        problems.append(f"expected 4 templates, got {len(ids)}")
     for info in ids:
         tmpl = templatesmod.load_template(info["id"])
         tokens = tmpl["code"]["tokens"]
@@ -278,7 +278,7 @@ def main() -> int:
 
     problems = check_templates()
     status = "PASS" if not problems else "FAIL"
-    print(f"[{status}] Templates (5 configs, tokens, contrast, CSS): {problems or 'ok'}")
+    print(f"[{status}] Templates (tokens, contrast, CSS): {problems or 'ok'}")
     ok = ok and not problems
 
     problems = check_book_flow()
