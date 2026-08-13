@@ -6,7 +6,6 @@ import {
   getTemplates,
   generateBook,
   getBookPreview,
-  applyComment,
   downloadBookPdf,
   type TemplateInfo,
   type Book,
@@ -30,11 +29,7 @@ export default function Home() {
   const [previewHtml, setPreviewHtml] = useState("");
   const [pageCount, setPageCount] = useState<number | null>(null);
 
-  const [comment, setComment] = useState("");
-  const [notes, setNotes] = useState<string[]>([]);
-
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isApplying, setIsApplying] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,7 +57,6 @@ export default function Home() {
     if (!content.trim()) return;
     setIsGenerating(true);
     setError(null);
-    setNotes([]);
     setBook(null);
     setPreviewHtml("");
     setPageCount(null);
@@ -77,23 +71,6 @@ export default function Home() {
       setIsGenerating(false);
     }
   }, [content, templateId, targetPages, refreshPreview]);
-
-  const handleApplyComment = useCallback(async () => {
-    if (!book || !comment.trim()) return;
-    setIsApplying(true);
-    setError(null);
-    try {
-      const res = await applyComment(book, comment);
-      setBook(res.book);
-      setNotes(res.notes);
-      await refreshPreview(res.book);
-      setComment("");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Edit failed");
-    } finally {
-      setIsApplying(false);
-    }
-  }, [book, comment, refreshPreview]);
 
   const handleDownload = useCallback(async () => {
     if (!book) return;
@@ -307,7 +284,6 @@ export default function Home() {
                     setBook(null);
                     setPreviewHtml("");
                     setPageCount(null);
-                    setNotes([]);
                   }}
                   className="rounded-xl border border-slate-700/50 bg-slate-800/50 px-4 py-2.5 text-sm font-medium text-slate-300 transition-colors hover:border-slate-600 hover:bg-slate-800"
                 >
@@ -341,11 +317,6 @@ export default function Home() {
                   <h3 className="text-sm font-semibold text-slate-300">
                     Live Preview
                   </h3>
-                  {isApplying && (
-                    <div className="flex items-center gap-2 text-xs text-blue-400">
-                      <LoadingSpinner size="sm" /> Editing...
-                    </div>
-                  )}
                 </div>
                 <div className="h-[70vh] overflow-hidden rounded-xl border border-slate-700/40 bg-white">
                   {previewHtml ? (
@@ -362,61 +333,20 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Comment editing */}
+              {/* Info panel */}
               <div className="space-y-4">
                 <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-5 backdrop-blur-sm">
                   <h3 className="text-sm font-semibold text-white">
-                    Edit with a comment
+                    Book Info
                   </h3>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Try: &quot;shorten section 2&quot;, &quot;add a diagram to the
-                    last section&quot;, &quot;make the heading bigger&quot;, &quot;add a code
-                    example&quot;
-                  </p>
-                  <textarea
-                    value={comment}
-                    onChange={(e) => setComment(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        handleApplyComment();
-                      }
-                    }}
-                    placeholder='e.g. "shorten section 3"'
-                    className="mt-3 h-24 w-full resize-none rounded-xl border border-slate-700/50 bg-slate-800/50 p-3 text-sm text-slate-200 placeholder-slate-500 transition-colors focus:border-blue-500/50 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                  />
-                  <button
-                    onClick={handleApplyComment}
-                    disabled={isApplying || !comment.trim()}
-                    className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-blue-500/40 bg-blue-500/10 px-4 py-2.5 text-sm font-medium text-blue-300 transition-colors hover:bg-blue-500/20 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    {isApplying ? (
-                      <LoadingSpinner size="sm" />
-                    ) : (
-                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-                      </svg>
+                  <div className="mt-3 space-y-2 text-xs text-slate-400">
+                    <p><span className="font-medium text-slate-300">Title:</span> {book.title}</p>
+                    <p><span className="font-medium text-slate-300">Sections:</span> {book.sections.length}</p>
+                    <p><span className="font-medium text-slate-300">Template:</span> {selectedTemplate?.label ?? book.template_id}</p>
+                    {pageCount !== null && (
+                      <p><span className="font-medium text-slate-300">Pages:</span> {pageCount} (target {book.target_pages})</p>
                     )}
-                    Apply edit
-                  </button>
-
-                  {notes.length > 0 && (
-                    <div className="mt-3 space-y-1">
-                      {notes.map((n, i) => (
-                        <div
-                          key={i}
-                          className="rounded-lg border border-slate-700/40 bg-slate-800/40 px-3 py-1.5 text-xs text-slate-400"
-                        >
-                          {n}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {error && (
-                    <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
-                      {error}
-                    </div>
-                  )}
+                  </div>
                 </div>
               </div>
             </div>

@@ -127,13 +127,6 @@ export async function getBookPreview(
   return data.html;
 }
 
-export async function applyComment(
-  book: Book,
-  comment: string
-): Promise<{ book: Book; changed_sections: number[]; notes: string[] }> {
-  return postJson("/api/apply-comment", { book, comment });
-}
-
 export async function downloadBookPdf(
   book: Book,
   templateId: string

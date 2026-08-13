@@ -12,7 +12,6 @@ from google.genai import types
 from pydantic import BaseModel
 
 import book as bookmod
-import editor as editormod
 import templates as templatesmod
 from key_manager import create_key_manager, RateLimitError
 from pipeline import compile_markdown_to_pdf, compile_document_to_pdf
@@ -92,11 +91,6 @@ class BookRequest(BaseModel):
 class PreviewRequest(BaseModel):
     book: dict
     template_id: str = "minimal-light"
-
-
-class CommentRequest(BaseModel):
-    book: dict
-    comment: str
 
 
 class DownloadRequest(BaseModel):
@@ -371,17 +365,6 @@ def preview_book(request: PreviewRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Preview failed: {str(e)}")
-
-
-@app.post("/api/apply-comment")
-def apply_comment(request: CommentRequest):
-    """Apply a natural-language edit comment to the book (incremental editing)."""
-    if not request.comment.strip():
-        raise HTTPException(status_code=400, detail="Comment cannot be empty")
-    try:
-        return editormod.apply_comment(request.book, request.comment)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Edit failed: {str(e)}")
 
 
 # ---------------------------------------------------------------------------
