@@ -971,6 +971,13 @@ def _section_pages(pdf_path: str, entries) -> Dict[str, int]:
     """
     import fitz
 
+    def _strip_md(s: str) -> str:
+        """Strip markdown inline formatting for PDF text matching."""
+        s = re.sub(r"`([^`]+)`", r"\1", s)
+        s = re.sub(r"\*\*([^*]+)\*\*", r"\1", s)
+        s = re.sub(r"\*([^*]+)\*", r"\1", s)
+        return re.sub(r"\s+", " ", s).strip()
+
     doc = fitz.open(pdf_path)
     pages_text = [re.sub(r"\s+", " ", page.get_text()) for page in doc]
     toc_idx = next(
@@ -979,7 +986,7 @@ def _section_pages(pdf_path: str, entries) -> Dict[str, int]:
     start = toc_idx + 1
     result: Dict[str, int] = {}
     for sid, title in entries:
-        needle = re.sub(r"\s+", " ", title).strip()
+        needle = _strip_md(title)
         found = next(
             (i for i in range(start, len(pages_text)) if needle and needle in pages_text[i]),
             None,
@@ -997,6 +1004,13 @@ def _add_outline_and_links(pdf_path: str, entries, page_map: Dict[str, int]) -> 
     """Add PDF bookmarks (outline panel) mirroring the TOC, and guarantee that
     every TOC entry is a real clickable internal link."""
     import fitz
+
+    def _strip_md(s: str) -> str:
+        """Strip markdown inline formatting for PDF text matching."""
+        s = re.sub(r"`([^`]+)`", r"\1", s)
+        s = re.sub(r"\*\*([^*]+)\*\*", r"\1", s)
+        s = re.sub(r"\*([^*]+)\*", r"\1", s)
+        return re.sub(r"\s+", " ", s).strip()
 
     doc = fitz.open(pdf_path)
 
@@ -1017,7 +1031,7 @@ def _add_outline_and_links(pdf_path: str, entries, page_map: Dict[str, int]) -> 
             target = page_map.get(sid)
             if target is None:
                 continue
-            rects = page.search_for(title)
+            rects = page.search_for(_strip_md(title))
             if not rects:
                 continue
             page.insert_link(
