@@ -1,5 +1,6 @@
 import json
 import os
+import time
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -142,7 +143,7 @@ RULES:
 - Total content should roughly fill <<TARGET_PAGES>> printed pages (each page holds ~1 short section with a diagram)."""
 
 
-def call_gemini(content: str, theme: str, max_retries: int = 3) -> str:
+def call_gemini(content: str, theme: str, max_retries: int = 5) -> str:
     last_error = None
     tried_keys = set()
 
@@ -176,13 +177,11 @@ def call_gemini(content: str, theme: str, max_retries: int = 3) -> str:
         except Exception as e:
             error_msg = str(e)
             last_error = e
-            if (
-                "429" in error_msg
-                or "RESOURCE_EXHAUSTED" in error_msg
-                or "rate" in error_msg.lower()
-                or "quota" in error_msg.lower()
-            ):
+            if _is_retryable(error_msg):
                 key_manager.mark_exhausted(api_key)
+                wait = min(2 ** attempt, 10)
+                print(f"RETRY {attempt+1}/{max_retries} after {wait}s: {error_msg[:120]}")
+                time.sleep(wait)
                 continue
             raise
 
@@ -213,7 +212,7 @@ async def generate_ebook_v2(request: GenerateRequest):
 
 def _call_gemini_parts(system_prompt: str, user_text: str, temperature: float = 0.7) -> str:
     last_error = None
-    for _ in range(3):
+    for attempt in range(5):
         try:
             api_key = key_manager.get_key()
             client = genai.Client(api_key=api_key)
@@ -229,10 +228,13 @@ def _call_gemini_parts(system_prompt: str, user_text: str, temperature: float = 
         except Exception as e:
             error_msg = str(e)
             last_error = e
-            if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg or "quota" in error_msg.lower():
+            if _is_retryable(error_msg):
+                wait = min(2 ** attempt, 10)
+                print(f"RETRY(book) {attempt+1}/5 after {wait}s: {error_msg[:120]}")
+                time.sleep(wait)
                 continue
             raise
-    raise RateLimitError(f"Gemini unavailable: {last_error}")
+    raise RateLimitError(f"Gemini unavailable after 5 retries: {last_error}")
 
 
 def generate_book_structure(content: str, template_id: str, target_pages: int) -> dict:
