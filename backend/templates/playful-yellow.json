@@ -1,0 +1,65 @@
+{
+  "id": "playful-yellow",
+  "label": "Playful Yellow",
+  "dark": false,
+  "description": "Warm cream pages with sunny yellow accents. Playful guides and tutorials.",
+  "fonts": {
+    "heading": "'Nunito', 'Segoe UI', 'Inter', sans-serif",
+    "body": "'Segoe UI', 'Inter', -apple-system, sans-serif",
+    "mono": "'SF Mono', 'Fira Code', Menlo, Consolas, monospace"
+  },
+  "palette": {
+    "page_bg": "#fffdf4",
+    "text": "#3f3427",
+    "heading": "#2b2214",
+    "accent": "#f59e0b",
+    "accent_soft": "#fef3c7",
+    "muted": "#8a7a5f",
+    "block_bg": "#fff8e1",
+    "code_bg": "#2d2416",
+    "code_text": "#ffe9c2",
+    "code_line": "#4a3d28",
+    "title_page_bg": "#fffdf4"
+  },
+  "radius": "12px",
+  "icon_style": "filled",
+  "diagram": {
+    "box_fill": "#ffffff",
+    "box_stroke": "#f59e0b",
+    "edge": "#f59e0b",
+    "text": "#3f3427",
+    "sub_bg": "#fef3c7"
+  },
+  "code": {
+    "style": "dark",
+    "tokens": {
+      "text": "#ffe9c2",
+      "comment": "#a9977a",
+      "preproc": "#ffd54f",
+      "keyword": "#ff8f6b",
+      "keyword_type": "#ffd54f",
+      "operator": "#ffe9c2",
+      "punctuation": "#ffe9c2",
+      "name": "#ffe9c2",
+      "builtin": "#ffd54f",
+      "function": "#7ee0a3",
+      "class": "#ffd54f",
+      "namespace": "#ffd54f",
+      "decorator": "#ffd54f",
+      "attribute": "#7ee0a3",
+      "tag": "#ff8f6b",
+      "variable": "#ffe9c2",
+      "constant": "#f4c3ff",
+      "number": "#f4c3ff",
+      "string": "#7ee0a3",
+      "docstring": "#a9977a",
+      "string_escape": "#ffd54f",
+      "interpol": "#ffd54f",
+      "error": "#ff8f6b",
+      "heading": "#ffd54f",
+      "deleted": "#ff8f6b",
+      "inserted": "#7ee0a3",
+      "emph": "#ffd54f"
+    }
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "id": "corporate-blue",
+  "label": "Corporate Blue",
+  "dark": false,
+  "description": "Trustworthy navy and steel blue on white. Professional reports and guides.",
+  "fonts": {
+    "heading": "'Segoe UI', 'Inter', -apple-system, sans-serif",
+    "body": "'Segoe UI', 'Inter', -apple-system, sans-serif",
+    "mono": "'SF Mono', 'Fira Code', Menlo, Consolas, monospace"
+  },
+  "palette": {
+    "page_bg": "#ffffff",
+    "text": "#233040",
+    "heading": "#0b1f3a",
+    "accent": "#1d4ed8",
+    "accent_soft": "#e8eefb",
+    "muted": "#5b6b7c",
+    "block_bg": "#f4f7fb",
+    "code_bg": "#f2f5fa",
+    "code_text": "#1e293b",
+    "code_line": "#dbe4f0",
+    "title_page_bg": "#ffffff"
+  },
+  "radius": "6px",
+  "icon_style": "line",
+  "diagram": {
+    "box_fill": "#ffffff",
+    "box_stroke": "#1d4ed8",
+    "edge": "#1d4ed8",
+    "text": "#233040",
+    "sub_bg": "#e8eefb"
+  },
+  "code": {
+    "style": "light",
+    "tokens": {
+      "text": "#1e293b",
+      "comment": "#52606f",
+      "preproc": "#0f766e",
+      "keyword": "#3730a3",
+      "keyword_type": "#0369a1",
+      "operator": "#475569",
+      "punctuation": "#475569",
+      "name": "#1e293b",
+      "builtin": "#b91c1c",
+      "function": "#1d4ed8",
+      "class": "#0e7490",
+      "namespace": "#0e7490",
+      "decorator": "#6d28d9",
+      "attribute": "#1d4ed8",
+      "tag": "#b91c1c",
+      "variable": "#1d4ed8",
+      "constant": "#0e7490",
+      "number": "#b45309",
+      "string": "#047857",
+      "docstring": "#475569",
+      "string_escape": "#6d28d9",
+      "interpol": "#6d28d9",
+      "error": "#b91c1c",
+      "heading": "#0369a1",
+      "deleted": "#b91c1c",
+      "inserted": "#047857",
+      "emph": "#b45309"
+    }
+  }
+}

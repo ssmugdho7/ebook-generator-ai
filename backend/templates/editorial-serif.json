@@ -1,0 +1,65 @@
+{
+  "id": "editorial-serif",
+  "label": "Editorial Serif",
+  "dark": false,
+  "description": "Magazine feel: serif headlines, forest green, generous whitespace.",
+  "fonts": {
+    "heading": "'Georgia', 'Times New Roman', serif",
+    "body": "'Segoe UI', 'Inter', -apple-system, sans-serif",
+    "mono": "'SF Mono', 'Fira Code', Menlo, Consolas, monospace"
+  },
+  "palette": {
+    "page_bg": "#ffffff",
+    "text": "#28312c",
+    "heading": "#16241c",
+    "accent": "#166534",
+    "accent_soft": "#e8f3ec",
+    "muted": "#66756c",
+    "block_bg": "#f7f9f8",
+    "code_bg": "#f4f7f5",
+    "code_text": "#1f2a24",
+    "code_line": "#e3ebe6",
+    "title_page_bg": "#ffffff"
+  },
+  "radius": "4px",
+  "icon_style": "line",
+  "diagram": {
+    "box_fill": "#ffffff",
+    "box_stroke": "#166534",
+    "edge": "#166534",
+    "text": "#28312c",
+    "sub_bg": "#e8f3ec"
+  },
+  "code": {
+    "style": "light",
+    "tokens": {
+      "text": "#1f2a24",
+      "comment": "#66756c",
+      "preproc": "#b45309",
+      "keyword": "#7c3aed",
+      "keyword_type": "#0e7490",
+      "operator": "#475569",
+      "punctuation": "#475569",
+      "name": "#1f2a24",
+      "builtin": "#b91c1c",
+      "function": "#166534",
+      "class": "#0e7490",
+      "namespace": "#0e7490",
+      "decorator": "#9333ea",
+      "attribute": "#166534",
+      "tag": "#b91c1c",
+      "variable": "#166534",
+      "constant": "#0e7490",
+      "number": "#b45309",
+      "string": "#047857",
+      "docstring": "#66756c",
+      "string_escape": "#9333ea",
+      "interpol": "#9333ea",
+      "error": "#b91c1c",
+      "heading": "#0e7490",
+      "deleted": "#b91c1c",
+      "inserted": "#047857",
+      "emph": "#b45309"
+    }
+  }
+}

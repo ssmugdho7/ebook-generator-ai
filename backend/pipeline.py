@@ -479,8 +479,18 @@ THEMES = {
 }
 
 
-def build_css(theme_key: str) -> str:
-    t = THEMES[theme_key]
+def css_from_vars(v: dict) -> str:
+    """Build the shared stylesheet from a vars dict.
+
+    `v` needs: page_bg, text, heading, accent, accent_soft, muted, block_bg,
+    code_bg, code_text, code_line, title_page_bg, font, heading_font, mono,
+    radius, callouts, diagram. Templates produce these via templates.template_css_vars.
+    """
+    accent = v.get("accent")
+    accent_soft = v.get("accent_soft", v.get("block_bg"))
+    radius = v.get("radius", "3mm")
+    callouts = v.get("callouts", {})
+    dia = v.get("diagram", {})
 
     header = """\
 @page {
@@ -512,6 +522,8 @@ h1 { font-size: 20pt; text-align: center; margin: 6mm 0 6mm; padding-bottom: 3mm
      border-bottom: 2px solid ACCENT; break-before: page; page-break-before: always; }
 h2 { font-size: 15pt; margin: 9mm 0 3mm; padding-left: 3mm;
      border-left: 3.5px solid ACCENT; }
+h2.title-sm { font-size: 13pt; border-left-width: 2.5px; }
+h2.title-lg { font-size: 18pt; }
 h3 { font-size: 12pt; margin: 5mm 0 2mm; color: ACCENT; }
 
 p { margin: 0 0 2.5mm; text-align: justify; orphans: 3; widows: 3; }
@@ -524,9 +536,19 @@ a { color: ACCENT; text-decoration: none; }
 hr { border: 0; border-top: 1px solid CODE_LINE; margin: 4mm 0; }
 img { max-width: 100%; }
 
+/* ---------- callouts / takeaways ---------- */
+.callout { break-inside: avoid; page-break-inside: avoid; border-radius: RADIUS;
+           padding: 3mm 4mm; margin: 3mm 0; border: 1px solid CC_BORDER;
+           border-left-width: 3.5px; background: CC_BG; }
+.callout-icon { float: left; font-size: 12pt; margin-right: 3mm; line-height: 1.4; }
+.callout .callout-body { margin-left: 8mm; }
+.callout .callout-body p:last-child { margin-bottom: 0; }
+.callout-takeaway { border-left-width: 4px; }
+.callout-takeaway .callout-body { font-weight: 600; color: HEADING; }
+
 /* ---------- code blocks: highlighted + kept together ---------- */
 .codehilite { background: CODE_BG; color: CODE_TEXT; border: 0.4pt solid CODE_LINE;
-              border-radius: 3mm; padding: 4mm; font-family: MONO; font-size: 8.5pt;
+              border-radius: RADIUS; padding: 4mm; font-family: MONO; font-size: 8.5pt;
               line-height: 1.45; overflow: hidden; break-inside: avoid;
               page-break-inside: avoid; margin: 3mm 0; }
 .codehilite pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
@@ -576,16 +598,38 @@ h1.chapter-title { font-size: 26pt; text-align: center; margin-top: 70mm; }
 .section-limit { break-inside: avoid; }
 """
 
-    css = body.replace("PAGE_BG", t["page_bg"]).replace("TEXT", t["text"])
-    css = css.replace("HEADING", t["heading"]).replace("ACCENT", t["accent"])
-    css = css.replace("MUTED", t["muted"])
-    css = css.replace("CODE_BG", t["code_bg"]).replace("CODE_LINE", t["code_line"])
-    css = css.replace("CODE_TEXT", t["code_text"])
-    css = css.replace("BLOCK_BG", t["block_bg"]).replace("FONT", t["font"])
-    css = css.replace("MONO", t["mono"])
-    cover_css = cover.replace("TITLE_BG", t["title_page_bg"])
-    header_css = header.replace("MUTED", t["muted"]).replace("ACCENT", t["accent"])
-    return header_css + cover_css + "\n" + css
+    callout_css = ""
+    kinds = {"info", "tip", "warn", "example", "takeaway"}
+    for kind in sorted(kinds):
+        spec = callouts.get(kind, {})
+        border = spec.get("border", accent)
+        bg = spec.get("bg", accent_soft)
+        callout_css += (
+            f".callout-{kind} {{ background: {bg}; border-color: {border}; }}\n"
+        )
+    diagram_css = "".join(
+        f".mermaid-{k} {{ --mm-fill: {dia.get('box_fill', '#fff')}; --mm-stroke: {dia.get('box_stroke', accent)}; }}"
+        for k in ("line", "box", "cluster")
+    )
+
+    css = body.replace("PAGE_BG", v.get("page_bg", "#fff")).replace("TEXT", v.get("text", "#000"))
+    css = css.replace("HEADING", v.get("heading", "#000")).replace("ACCENT", accent or "#000")
+    css = css.replace("ACCENT_SOFT", accent_soft)
+    css = css.replace("MUTED", v.get("muted", "#666"))
+    css = css.replace("CODE_BG", v.get("code_bg", "#f5f5f5")).replace("CODE_LINE", v.get("code_line", "#ddd"))
+    css = css.replace("CODE_TEXT", v.get("code_text", "#111"))
+    css = css.replace("BLOCK_BG", v.get("block_bg", "#fafafa"))
+    css = css.replace("FONT", v.get("font", "sans-serif"))
+    css = css.replace("MONO", v.get("mono", "monospace"))
+    css = css.replace("RADIUS", radius)
+    css = css.replace("CC_BORDER", accent or "#000").replace("CC_BG", accent_soft)
+    cover_css = cover.replace("TITLE_BG", v.get("title_page_bg", v.get("page_bg", "#fff")))
+    header_css = header.replace("MUTED", v.get("muted", "#666")).replace("ACCENT", accent or "#000")
+    return header_css + cover_css + "\n" + css + "\n" + callout_css + diagram_css
+
+
+def build_css(theme_key: str) -> str:
+    return css_from_vars(THEMES[theme_key])
 
 
 # ---------------------------------------------------------------------------
@@ -673,10 +717,19 @@ def build_document(
 
 
 async def render_pdf(
-    markdown_text: str, theme_key: str, out_path: str, page_map: Dict[str, int] = None
+    markdown_text: str,
+    theme_key: str,
+    out_path: str,
+    page_map: Dict[str, int] = None,
+    document: str = None,
 ) -> str:
-    """Render the final styled PDF. Returns output path."""
-    document = build_document(markdown_text, theme_key, page_map)
+    """Render the final styled PDF. Returns output path.
+
+    If `document` is given (a fully-assembled HTML string from
+    book.render_book_document), it is used directly instead of building the
+    document from markdown+theme.
+    """
+    document = document or build_document(markdown_text, theme_key, page_map)
 
     from playwright.async_api import async_playwright
 
@@ -991,25 +1044,22 @@ flag = True and (3.14 <= 7)
     return failures
 
 
-def compile_markdown_to_pdf(markdown_text: str, theme: str) -> str:
-    theme_key = theme if theme in THEMES else "Modern Tech Blog"
-    cleaned = reject_ascii_diagram_blocks(markdown_text)
-    cleaned = ensure_diagrams(cleaned)
+def compile_document_to_pdf(document: str, entries) -> str:
+    """Two-pass render a fully-assembled HTML document to PDF with a real TOC.
 
-    entries = _section_entries(
-        _add_section_anchors(add_language_labels(render_markdown_to_html(cleaned), cleaned))
-    )
-
+    `entries` is the ordered [(sec-N, title)] list used for the outline and
+    page-number verification.
+    """
     assets = os.path.join(os.path.dirname(__file__), "assets")
     pass_a = os.path.join(assets, f"ebook-{uuid.uuid4().hex[:8]}.pdf")
     out_path = os.path.join(assets, f"ebook-{uuid.uuid4().hex[:8]}.pdf")
 
     # Pass A: render without page numbers to discover final pagination.
-    _run_coro(render_pdf(cleaned, theme_key, pass_a, page_map=None))
+    _run_coro(render_pdf("", "Modern Tech Blog", pass_a, page_map=None, document=document))
     page_map = _section_pages(pass_a, entries)
 
     # Pass B: render with computed page numbers in the TOC.
-    _run_coro(render_pdf(cleaned, theme_key, out_path, page_map=page_map))
+    _run_coro(render_pdf("", "Modern Tech Blog", out_path, page_map=page_map, document=document))
 
     try:
         _add_outline_and_links(out_path, entries, page_map)
@@ -1020,3 +1070,30 @@ def compile_markdown_to_pdf(markdown_text: str, theme: str) -> str:
     if os.path.exists(pass_a):
         os.remove(pass_a)
     return out_path
+
+
+def count_document_pages(document: str) -> int:
+    """Render a single pass and return the number of printed pages."""
+    import fitz
+
+    assets = os.path.join(os.path.dirname(__file__), "assets")
+    tmp = os.path.join(assets, f"ebook-{uuid.uuid4().hex[:8]}.pdf")
+    try:
+        _run_coro(render_pdf("", "Modern Tech Blog", tmp, page_map=None, document=document))
+        with fitz.open(tmp) as doc:
+            return doc.page_count
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
+def compile_markdown_to_pdf(markdown_text: str, theme: str) -> str:
+    theme_key = theme if theme in THEMES else "Modern Tech Blog"
+    cleaned = reject_ascii_diagram_blocks(markdown_text)
+    cleaned = ensure_diagrams(cleaned)
+
+    entries = _section_entries(
+        _add_section_anchors(add_language_labels(render_markdown_to_html(cleaned), cleaned))
+    )
+    document = build_document(cleaned, theme_key)
+    return compile_document_to_pdf(document, entries)

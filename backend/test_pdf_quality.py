@@ -21,7 +21,10 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 import fitz  # noqa: E402
 
+import book as bookmod  # noqa: E402
+import editor as editormod  # noqa: E402
 import pipeline  # noqa: E402
+import templates as templatesmod  # noqa: E402
 
 SAMPLE_MD = """# Microservices: A Practical Guide
 
@@ -161,8 +164,128 @@ def check_round3(theme: str) -> tuple:
     return outline, entities, has_decoded_title, mermaid_errors, stale, toc_text
 
 
+def check_templates() -> list:
+    """Every template: full token coverage, WCAG AA contrast, CSS assembly."""
+    problems = []
+    ids = templatesmod.list_templates()
+    if len(ids) < 5:
+        problems.append(f"expected 5 templates, got {len(ids)}")
+    for info in ids:
+        tmpl = templatesmod.load_template(info["id"])
+        tokens = tmpl["code"]["tokens"]
+        missing = [n for n in templatesmod.ALL_TOKEN_NAMES if n not in tokens]
+        if missing:
+            problems.append(f"{info['id']}: missing tokens {missing}")
+        fails = templatesmod.verify_template_code_contrast(tmpl)
+        if fails:
+            problems.append(f"{info['id']}: contrast {fails}")
+        css = templatesmod.build_template_css(tmpl)
+        for needle in (".codehilite", ".callout-tip", ".mermaid"):
+            if needle not in css:
+                problems.append(f"{info['id']}: css missing {needle}")
+        pyg = templatesmod.template_pygments_css(tmpl)
+        if ".codehilite" not in pyg:
+            problems.append(f"{info['id']}: pygments css empty")
+        doc = bookmod.render_book_document(
+            {"title": "X", "sections": [{"title": "S", "blocks": [bookmod.para("hi")]}]},
+            tmpl,
+        )
+        for needle in ("<!DOCTYPE html>", "Table of Contents", "sec-1"):
+            if needle not in doc:
+                problems.append(f"{info['id']}: document missing {needle}")
+    return problems
+
+
+def check_book_flow() -> list:
+    """Structured book: render, count, edit-by-comment, and PDF compile."""
+    import time as _time
+
+    problems = []
+    tmpl = templatesmod.load_template("minimal-light")
+    book = {
+        "title": "Structured Book Test",
+        "subtitle": "verification",
+        "template_id": "minimal-light",
+        "target_pages": 5,
+        "sections": [
+            {
+                "title": "Intro",
+                "blocks": [
+                    bookmod.para("First sentence here. Second sentence here too. Third one."),
+                    bookmod.callout("tip", "A helpful tip."),
+                ],
+            },
+            {
+                "title": "Deep Dive",
+                "blocks": [
+                    bookmod.para("One sentence. Two sentence. Three sentence."),
+                    bookmod.code_block("python", "print('hi')"),
+                ],
+            },
+            {
+                "title": "Wrap Up",
+                "blocks": [
+                    bookmod.list_block(["a", "b"]),
+                    bookmod.diagram_block("flowchart LR\n    A[In] --> B[Out]", "Flow"),
+                ],
+            },
+        ],
+    }
+
+    pages = bookmod.count_pages(book, tmpl)
+    if pages < 1:
+        problems.append(f"count_pages returned {pages}")
+
+    r = editormod.apply_comment(book, "shorten section 2")
+    if r["changed_sections"] != [1]:
+        problems.append(f"shorten section 2 changed {r['changed_sections']}")
+    para = r["book"]["sections"][1]["blocks"][0]
+    if len(para.get("text", "").split(".")) > 3:
+        problems.append(f"shorten didn't trim: {para['text']}")
+
+    r = editormod.apply_comment(book, "add a diagram to the last section")
+    last_blocks = r["book"]["sections"][-1]["blocks"]
+    if not any(b["type"] == "diagram" for b in last_blocks):
+        problems.append("add-diagram comment had no effect")
+    r = editormod.apply_comment(book, "make the heading smaller on section 1")
+    if r["book"]["sections"][0].get("title_scale") != "sm":
+        problems.append("heading-sm comment had no effect")
+    r = editormod.apply_comment(book, "add a code example")
+    if not any(b["type"] == "code" for b in r["book"]["sections"][-1]["blocks"]):
+        problems.append("add-code comment had no effect")
+
+    # compile the edited book to a PDF with real outline + page numbers
+    t0 = _time.time()
+    document = bookmod.render_book_document(r["book"], tmpl, page_map=None)
+    out = pipeline.compile_document_to_pdf(document, bookmod.book_entries(r["book"]))
+    elapsed = _time.time() - t0
+    doc = fitz.open(out)
+    texts = [" ".join(p.get_text().split()) for p in doc]
+    full = " ".join(texts)
+    if len(doc.get_toc()) != 3:
+        problems.append(f"book outline has {len(doc.get_toc())} entries, expected 3")
+    for term in ["Deep Dive", "In", "Out", "print('hi')"]:
+        if term not in full:
+            problems.append(f"book PDF missing {term!r}")
+    if elapsed > 30:
+        problems.append(f"book compile too slow ({elapsed:.1f}s)")
+    doc.close()
+    return problems
+
+
 def main() -> int:
     ok = True
+
+    problems = check_templates()
+    status = "PASS" if not problems else "FAIL"
+    print(f"[{status}] Templates (5 configs, tokens, contrast, CSS): {problems or 'ok'}")
+    ok = ok and not problems
+
+    problems = check_book_flow()
+    status = "PASS" if not problems else "FAIL"
+    print(f"[{status}] Book model + comment editing + compile: {problems or 'ok'}")
+    ok = ok and not problems
+
     for theme in pipeline.THEMES:
         failures = check_bug1(theme)
         status = "PASS" if not failures else "FAIL"
