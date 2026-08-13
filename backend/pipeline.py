@@ -63,7 +63,7 @@ _SKIP_WORDS = set(
 
 
 def _fallback_mermaid(title: str) -> str:
-    """Generate a valid mermaid flowchart from a heading when none exists."""
+    """Generate a styled mermaid flowchart from a heading when none exists."""
     words = [w.strip(".,;:#*`[]()").lower() for w in re.split(r"[\s]+", title)]
     nodes = []
     seen = set()
@@ -76,15 +76,25 @@ def _fallback_mermaid(title: str) -> str:
             break
     if len(nodes) < 2:
         nodes = ["Main Concept", "Core Mechanics", "Implementation"]
-    parts = ["flowchart LR"]
-    prev = "A0"
-    for i, n in enumerate(nodes):
-        node_id = f"N{i}"
-        parts.append(f"    {node_id}[{n}]")
-        if i > 0:
-            parts.append(f"    {prev} --> {node_id}")
-        prev = node_id
-    parts.append(f"    {prev} --> Final[Key Takeaways]")
+    parts = [
+        "flowchart LR",
+        "    A[\"" + nodes[0] + "\"]:::input --> B[\"" + (nodes[1] if len(nodes) > 1 else "Explore") + "\"]:::process",
+    ]
+    if len(nodes) > 2:
+        parts.append(f"    B --> C[\"{nodes[2]}\"]:::storage")
+        if len(nodes) > 3:
+            parts.append(f"    C --> D[\"{nodes[3]}\"]:::output")
+            last = "D"
+        else:
+            last = "C"
+    else:
+        last = "B"
+    parts.append(f"    {last} --> E[\"Key Takeaways\"]:::takeaway")
+    parts.append("    classDef input fill:#dbeafe,stroke:#2563eb,color:#1e3a5f")
+    parts.append("    classDef process fill:#d1fae5,stroke:#059669,color:#064e3b")
+    parts.append("    classDef storage fill:#ede9fe,stroke:#7c3aed,color:#3b0764")
+    parts.append("    classDef output fill:#fef3c7,stroke:#d97706,color:#78350f")
+    parts.append("    classDef takeaway fill:#ecfdf5,stroke:#10b981,color:#064e3b,stroke-width:3px")
     return "\n".join(parts)
 
 
@@ -571,9 +581,16 @@ td { border-bottom: 0.4pt solid CODE_LINE; padding: 2mm 2.5mm; }
 tr:nth-child(even) td { background: BLOCK_BG; }
 
 /* ---------- mermaid diagrams: real SVG images ---------- */
-.mermaid { text-align: center; margin: 3mm 0; break-inside: avoid;
+.mermaid { text-align: center; margin: 4mm 0; break-inside: avoid;
            page-break-inside: avoid; background: transparent; }
-.mermaid svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+.mermaid svg { display: block; margin: 0 auto; max-width: 100%; height: auto;
+               filter: drop-shadow(0 1px 2px rgba(0,0,0,0.06)); }
+.mermaid .node rect, .mermaid .node polygon, .mermaid .node circle {
+  stroke-width: 2px; }
+.mermaid .edgePath .path { stroke: #64748b; stroke-width: 2px; }
+.mermaid .edgeLabel { font-size: 12px; background: #fff; padding: 2px 6px;
+                       border-radius: 4px; }
+.mermaid .cluster rect { stroke-width: 2px; rx: 8; ry: 8; }
 .merr { color: #b00020; font-size: 9pt; }
 
 /* ---------- cover / title ---------- */
@@ -745,10 +762,27 @@ async def render_pdf(
             await page.add_script_tag(content=mermaid_js)
             await page.evaluate(r"""(async () => {
               if (!window.mermaid) return;
-              mermaid.initialize({ startOnLoad: false, theme: 'neutral',
+              mermaid.initialize({ startOnLoad: false, theme: 'base',
                                    securityLevel: 'loose',
-                                   flowchart: { htmlLabels: true, useMaxWidth: true },
-                                   themeVariables: { fontFamily: 'sans-serif' } });
+                                   flowchart: { htmlLabels: true, useMaxWidth: false, curve: 'cardinal', padding: 15 },
+                                   themeVariables: {
+                                     fontFamily: 'Inter, system-ui, sans-serif',
+                                     fontSize: '14px',
+                                     primaryColor: '#dbeafe',
+                                     primaryTextColor: '#1e3a5f',
+                                     primaryBorderColor: '#2563eb',
+                                     lineColor: '#64748b',
+                                     secondaryColor: '#d1fae5',
+                                     tertiaryColor: '#fef3c7',
+                                     noteBkgColor: '#fef3c7',
+                                     noteTextColor: '#78350f',
+                                     noteBorderColor: '#d97706',
+                                     actorBkg: '#dbeafe',
+                                     actorBorder: '#2563eb',
+                                     actorTextColor: '#1e3a5f',
+                                     signalColor: '#64748b',
+                                     signalTextColor: '#1e293b'
+                                   } });
               const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;')
                                  .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
               const buildFallbackSvg = (id, src) => {
@@ -763,24 +797,32 @@ async def render_pdf(
                 while (labels.length < 2) {
                   labels.push(['Core Concept', 'Implementation', 'Key Takeaways'][labels.length]);
                 }
-                labels.length = Math.min(labels.length, 4);
-                const nw = 150, gap = 40, h = 60, pad = 20;
+                labels.length = Math.min(labels.length, 5);
+                const colors = [
+                  { fill: '#dbeafe', stroke: '#2563eb', text: '#1e3a5f' },
+                  { fill: '#d1fae5', stroke: '#059669', text: '#064e3b' },
+                  { fill: '#ede9fe', stroke: '#7c3aed', text: '#3b0764' },
+                  { fill: '#fef3c7', stroke: '#d97706', text: '#78350f' },
+                  { fill: '#fce7f3', stroke: '#db2777', text: '#831843' },
+                ];
+                const nw = 160, gap = 48, h = 64, pad = 24;
                 const w = labels.length * nw + (labels.length - 1) * gap + pad * 2;
-                const H = h + pad * 2, mid = pad + h / 2, aid = 'a' + id.replace(/[^a-zA-Z0-9]/g, '');
+                const H = h + pad * 2 + 10, mid = pad + h / 2, aid = 'a' + id.replace(/[^a-zA-Z0-9]/g, '');
                 let svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + H +
-                          '" viewBox="0 0 ' + w + ' ' + H + '" font-family="sans-serif">';
-                svg += '<defs><marker id="' + aid + '" markerWidth="10" markerHeight="10" refX="9" refY="3" ' +
-                       'orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#3b82f6"/></marker></defs>';
+                          '" viewBox="0 0 ' + w + ' ' + H + '" font-family="Inter, system-ui, sans-serif">';
+                svg += '<defs><marker id="' + aid + '" markerWidth="12" markerHeight="12" refX="10" refY="4" ' +
+                       'orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,8 L10,4 z" fill="#64748b"/></marker></defs>';
                 labels.forEach((lab, i) => {
                   const x = pad + i * (nw + gap);
+                  const c = colors[i % colors.length];
                   svg += '<rect x="' + x + '" y="' + pad + '" width="' + nw + '" height="' + h +
-                         '" rx="8" fill="#eef2f7" stroke="#3b82f6" stroke-width="2"/>';
+                         '" rx="10" fill="' + c.fill + '" stroke="' + c.stroke + '" stroke-width="2"/>';
                   svg += '<text x="' + (x + nw / 2) + '" y="' + mid + '" text-anchor="middle" ' +
-                         'dominant-baseline="middle" font-size="13" fill="#1e293b">' + esc(lab) + '</text>';
+                         'dominant-baseline="middle" font-size="13" font-weight="600" fill="' + c.text + '">' + esc(lab) + '</text>';
                   if (i > 0) {
                     const px = pad + (i - 1) * (nw + gap) + nw;
-                    svg += '<path d="M ' + px + ' ' + mid + ' H ' + (px + gap) +
-                           '" stroke="#3b82f6" stroke-width="2" fill="none" marker-end="url(#' + aid + ')"/>';
+                    svg += '<line x1="' + (px + 4) + '" y1="' + mid + '" x2="' + (x - 4) + '" y2="' + mid +
+                           '" stroke="#94a3b8" stroke-width="2" marker-end="url(#' + aid + ')"/>';
                   }
                 });
                 return svg + '</svg>';

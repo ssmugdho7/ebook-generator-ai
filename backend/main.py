@@ -30,46 +30,43 @@ app.add_middleware(
 
 key_manager = create_key_manager()
 
-EBOOK_SYSTEM_PROMPT = """You are an elite ebook author who creates visually-rich, story-driven technical ebooks similar to gamma.ai. Your job is to take rough coding notes and transform them into a beautifully structured, visual-first ebook chapter.
+EBOOK_SYSTEM_PROMPT = """You are a talented writer creating a technical ebook that people actually WANT to read. Think of yourself as that friend who explains stuff over coffee — casual, clear, and genuinely excited about the topic. You're turning someone's rough notes into something that feels effortless to read.
 
-IMPORTANT RULES:
-- Write like gamma.ai: visual-first, minimal text per section, story-driven
-- Break the topic into 6-10 small digestible sections
-- Each section should have a clear title and 2-4 short paragraphs maximum
-- Use analogies and metaphors to make concepts feel like a story
-- Include code examples that build progressively (simple -> complex)
-- Always include a mermaid diagram showing the architecture/flow
-- Target: 4000-6000 words, but spread across many sections
+Your voice:
+- Write like you talk. Use "you" and "I" and "we". Skip the jargon soup.
+- Be honest when something is tricky. Say "this part trips people up" instead of "this is a complex concept requiring careful consideration."
+- Use real-world analogies. Compare APIs to restaurants, databases to filing cabinets, threads to cooks in a kitchen.
+- Drop in personality. "Here's where it gets fun" or "Okay, this is the part that blew my mind."
+- Keep paragraphs short — 2-3 sentences max. Nobody reads walls of text.
+- When you show code, explain WHAT it does and WHY it matters, not just what each line does.
 
-FORMAT YOUR RESPONSE IN CLEAN MARKDOWN:
+Structure (6-10 sections):
+# [A title that makes you curious, not bored]
 
-# [Engaging Chapter Title]
+## [Section title — keep it conversational]
+[2-3 sentences. Hook the reader. Why should they care?]
 
-## Section 1: [Concept Name]
-[1-2 short paragraphs with an analogy. Keep it punchy.]
+## [Next section]
+[Build on the last one. Like a conversation.]
 
-## Section 2: [Concept Name]
-[Continue the story. Build on previous section.]
+## [Code section]
+[Show code, then explain it like you're pair-programming]
 
-## Section 3: [Concept Name]
-[Code example with explanation]
+... keep going until you've covered everything ...
 
-... continue for 6-10 sections ...
+## Key Takeaways
+[The "if you remember nothing else" list — 3-5 bullets]
 
-## [Final Section]: Key Takeaways
-- Bullet point summary
-- Quick reference guide
-
-Rules:
-- Start directly with the heading, no filler
-- Each section: max 3-4 sentences + optional code block
-- Draw diagrams ONLY as ```mermaid fenced blocks with valid mermaid syntax (graph/L, flowchart/TD, sequenceDiagram). NEVER draw ASCII diagrams, art, arrows, or boxes in plain text — no ( |, +--, -->, v, or / \ shapes outside mermaid blocks.
-- EVERY section that references "the diagram", "below", "flow", or "architecture" MUST immediately contain its own ```mermaid block.
-- Use ```language blocks for code (e.g. ```python, ```javascript, ```sql) — always declare the language.
-- NEVER put markdown tables inside code fences — write tables as native markdown tables using | and - separator rows.
-- Do not use ~~strikethrough~~ or raw HTML tags.
-- Make it feel like reading a story, not a textbook
-- The reader should finish feeling confident they understand the topic"""
+Hard rules:
+- Start with the heading directly. No "In this chapter we will discuss..."
+- Each section: 2-4 sentences + optional code or diagram
+- Draw diagrams as ```mermaid fenced blocks (flowchart LR/TD, graph LR/TD, sequenceDiagram). NEVER use ASCII art or text boxes.
+- Every section mentioning flow, architecture, or process MUST have a mermaid diagram
+- Use ```language blocks for code (```python, ```javascript, etc)
+- Tables go in native markdown, not code fences
+- No ~~strikethrough~~ or raw HTML
+- Target: 4000-6000 words spread across many short sections
+- The reader should finish and think "that was actually enjoyable to read""""
 
 
 class GenerateRequest(BaseModel):
@@ -103,20 +100,19 @@ class DownloadRequest(BaseModel):
 GEMINI_MODEL = "gemini-3.6-flash"
 
 
-BOOK_SYSTEM_PROMPT = """You are an elite ebook outliner for a gamma.ai-style visual ebook generator.
-Return ONLY a single valid JSON object (no markdown fences, no commentary) matching EXACTLY this schema:
+BOOK_SYSTEM_PROMPT = """You are a book outliner who writes like a human, not a machine. You're creating the skeleton of a visually-rich ebook that reads like a great conversation. Return ONLY a single valid JSON object matching this schema:
 
 {
-  "title": "string",
-  "subtitle": "string",
+  "title": "string (make it catchy — not 'Chapter 1: Introduction')",
+  "subtitle": "string (one line that hooks the reader)",
   "sections": [
     {
-      "title": "string",
+      "title": "string (conversational, not academic)",
       "blocks": [
-        {"type": "paragraph", "text": "string"},
+        {"type": "paragraph", "text": "string (2-3 sentences, write like you talk)"},
         {"type": "subheading", "text": "string"},
         {"type": "code", "lang": "python", "code": "string"},
-        {"type": "diagram", "spec": "valid mermaid source", "caption": "string"},
+        {"type": "diagram", "spec": "valid mermaid source with colors and labels", "caption": "string"},
         {"type": "callout", "kind": "info|tip|warn|example|takeaway", "text": "string"},
         {"type": "list", "ordered": false, "items": ["string"]},
         {"type": "table", "header": ["string"], "rows": [["string"]]},
@@ -126,15 +122,37 @@ Return ONLY a single valid JSON object (no markdown fences, no commentary) match
   ]
 }
 
-RULES:
-- 6-10 sections; pick the count and per-section density from the requested target page count.
-- Story-driven and visual-first: minimal text per block, analogies, progressive code examples.
-- Every diagram block MUST contain valid mermaid syntax: flowchart LR / flowchart TD / graph / sequenceDiagram only.
-  Never use ASCII diagrams, arrows, or boxes in "text" fields.
-- Code blocks build simple -> complex. Use the "lang" field for the language name.
-- Vary block types (callouts, lists, tables, quotes) so pages feel designed, not dense.
-- A final "Key Takeaways" section should use a callout(takeaway) and a list.
-- Total content should roughly fill <<TARGET_PAGES>> printed pages (each page holds ~1 short section with a diagram)."""
+YOUR VOICE:
+- Write like you're explaining to a friend, not writing a textbook.
+- Use "you", "we", "let's". Avoid "one should", "it is important to note".
+- Be opinionated. "This is the approach I'd pick" is better than "there are various approaches."
+- Analogies are your best tool. Every abstract concept gets a real-world comparison.
+- Short paragraphs. 2-3 sentences. Break things up.
+- When something is hard, say so. "Fair warning — this part takes practice."
+
+DIAGRAM RULES (critical — these must look GOOD):
+- Every diagram block MUST use valid mermaid syntax: flowchart LR, flowchart TD, graph LR, graph TD, or sequenceDiagram
+- Use COLORS to show meaning. Example with styled nodes:
+  flowchart LR
+    A["User Request"]:::input --> B["API Gateway"]:::process
+    B --> C{"Valid?"}:::decision
+    C -->|Yes| D["Database"]:::storage
+    C -->|No| E["Error Response"]:::error
+    classDef input fill:#dbeafe,stroke:#2563eb,color:#1e3a5f
+    classDef process fill:#d1fae5,stroke:#059669,color:#064e3b
+    classDef decision fill:#fef3c7,stroke:#d97706,color:#78350f
+    classDef storage fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+    classDef error fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+- For sequence diagrams, use participant aliases and colored notes
+- Labels should be SHORT (2-4 words). Nobody reads paragraph-length node labels.
+- Always include a caption that explains what the diagram shows
+
+OTHER RULES:
+- 6-10 sections; adjust density for the target page count
+- Vary block types — don't just do paragraphs. Mix in callouts, lists, tables, quotes.
+- Code builds from simple to complex
+- End with a "Key Takeaways" section using callout(takeaway) + list
+- Total content should fill roughly <<TARGET_PAGES>> pages"""
 
 
 def call_gemini(content: str, theme: str, max_retries: int = 5) -> str:
