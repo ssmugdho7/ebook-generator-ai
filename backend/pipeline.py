@@ -796,12 +796,36 @@ async def render_pdf(
                 } catch (e) {
                   svg = '';
                 }
-                // Check for error states: specific error text, doubled chars, or too many raw text elements
-                const hasErrorText = /mermaid\s+version|syntax error|parse error|error rendering/i.test(svg);
-                const hasDoubledChars = /SySynnttaaxx|eerrrroorr|vveerrssiioonn/i.test(svg);
+                // Check for error patterns - be specific to avoid false positives
+                const hasSyntaxError = /syntax\s+error/i.test(svg);
+                const hasMermaidVersion = /mermaid\s+version/i.test(svg);
+                const hasParseError = /parse\s+error/i.test(svg);
+                const hasRenderError = /error\s+rendering/i.test(svg);
+                // Check doubled chars only in visible text (strip all tags + attrs to avoid CSS/filter hex color false positives)
+                const svgVisibleText = svg.replace(/<[^>]*>/g, '').replace(/#[0-9a-fA-F]{4,}/gi, '').replace(/hsl\([^)]*\)/gi, '');
+                const hasDoubledChars = /(\w)\1{3,}/.test(svgVisibleText);
                 const textCount = (svg.match(/<text/g) || []).length;
-                const bad = hasErrorText || hasDoubledChars || textCount > 15 || !svg;
+                const rectCount = (svg.match(/<rect/g) || []).length;
+                // Error if: specific error text, doubled chars in text, or no shapes at all
+                const bad = hasSyntaxError || hasMermaidVersion || hasParseError || hasRenderError || hasDoubledChars || !svg || (rectCount === 0 && textCount > 5);
                 el.innerHTML = bad ? buildFallbackSvg(el.id, def) : svg;
+              }
+              // Fix mermaid viewBox clipping: expand viewBox to cover all content
+              for (const el of Array.from(document.querySelectorAll('pre.mermaid svg'))) {
+                try {
+                  const bbox = el.getBBox();
+                  const vb = el.getAttribute('viewBox');
+                  if (!vb) continue;
+                  const parts = vb.split(/[\s,]+/).map(Number);
+                  const vx = parts[0], vy = parts[1], vw = parts[2], vh = parts[3];
+                  let newVx = Math.min(vx, bbox.x - 5);
+                  let newVy = Math.min(vy, bbox.y - 5);
+                  let newVw = Math.max(vw, bbox.x + bbox.width + 10 - newVx);
+                  let newVh = Math.max(vh, bbox.y + bbox.height + 10 - newVy);
+                  if (newVx < vx || newVy < vy || newVw > vw || newVh > vh) {
+                    el.setAttribute('viewBox', newVx + ' ' + newVy + ' ' + newVw + ' ' + newVh);
+                  }
+                } catch(e) {}
               }
             })()""")
 
@@ -811,8 +835,15 @@ async def render_pdf(
                     """() => {
                       const pres = document.querySelectorAll('pre.mermaid');
                       if (pres.length === 0) return true;
-                      return Array.from(pres).every(el =>
-                        el.querySelector('svg') || el.querySelector('.merr'));
+                      return Array.from(pres).every(el => {
+                        // Check if replaced with SVG or has error class
+                        if (el.querySelector('svg')) return true;
+                        if (el.classList.contains('merr')) return true;
+                        // Check if contains error text
+                        const text = el.textContent || '';
+                        if (/syntax|error|version|parse/i.test(text)) return true;
+                        return false;
+                      });
                     }""",
                     timeout=60000,
                 )
