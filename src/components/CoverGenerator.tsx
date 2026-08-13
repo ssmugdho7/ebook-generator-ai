@@ -16,6 +16,23 @@ interface CoverVariant {
   render: (ctx: CanvasRenderingContext2D, w: number, h: number, title: string, subtitle: string) => void;
 }
 
+interface CoverSize {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  label: string;
+}
+
+const COVER_SIZES: CoverSize[] = [
+  { id: "standard", name: "Standard eBook", width: 1600, height: 2400, label: "1600 × 2400" },
+  { id: "kindle", name: "Amazon Kindle", width: 1600, height: 2560, label: "1600 × 2560" },
+  { id: "square", name: "Square (Social)", width: 1200, height: 1200, label: "1200 × 1200" },
+  { id: "a4", name: "A4 Portrait", width: 2480, height: 3508, label: "2480 × 3508" },
+  { id: "wide", name: "Wide Banner", width: 1920, height: 1080, label: "1920 × 1080" },
+  { id: "booklet", name: "Booklet", width: 1200, height: 1800, label: "1200 × 1800" },
+];
+
 const COVERS: CoverVariant[] = [
   {
     id: "minimal",
@@ -24,14 +41,14 @@ const COVERS: CoverVariant[] = [
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, w, h);
       ctx.fillStyle = "#1e293b";
-      ctx.font = "bold 48px Georgia, serif";
+      ctx.font = `bold ${Math.floor(w / 18)}px Georgia, serif`;
       ctx.textAlign = "center";
-      wrapText(ctx, title, w / 2, h / 2 - 40, w - 120, 56);
+      wrapText(ctx, title, w / 2, h / 2 - h * 0.05, w - w * 0.15, Math.floor(w / 16));
       ctx.fillStyle = "#64748b";
-      ctx.font = "20px system-ui, sans-serif";
-      ctx.fillText(subtitle, w / 2, h / 2 + 80);
+      ctx.font = `${Math.floor(w / 40)}px system-ui, sans-serif`;
+      ctx.fillText(subtitle, w / 2, h / 2 + h * 0.12);
       ctx.fillStyle = "#3b82f6";
-      ctx.fillRect(w / 2 - 40, h / 2 + 100, 80, 4);
+      ctx.fillRect(w / 2 - w * 0.05, h / 2 + h * 0.16, w * 0.1, h * 0.005);
     },
   },
   {
@@ -44,14 +61,14 @@ const COVERS: CoverVariant[] = [
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, w, h);
       ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 48px Georgia, serif";
+      ctx.font = `bold ${Math.floor(w / 18)}px Georgia, serif`;
       ctx.textAlign = "center";
-      wrapText(ctx, title, w / 2, h / 2 - 40, w - 120, 56);
+      wrapText(ctx, title, w / 2, h / 2 - h * 0.05, w - w * 0.15, Math.floor(w / 16));
       ctx.fillStyle = "rgba(255,255,255,0.8)";
-      ctx.font = "20px system-ui, sans-serif";
-      ctx.fillText(subtitle, w / 2, h / 2 + 80);
+      ctx.font = `${Math.floor(w / 40)}px system-ui, sans-serif`;
+      ctx.fillText(subtitle, w / 2, h / 2 + h * 0.12);
       ctx.fillStyle = "rgba(255,255,255,0.3)";
-      ctx.fillRect(w / 2 - 40, h / 2 + 100, 80, 4);
+      ctx.fillRect(w / 2 - w * 0.05, h / 2 + h * 0.16, w * 0.1, h * 0.005);
     },
   },
   {
@@ -61,14 +78,14 @@ const COVERS: CoverVariant[] = [
       ctx.fillStyle = "#0f172a";
       ctx.fillRect(0, 0, w, h);
       ctx.fillStyle = "#f1f5f9";
-      ctx.font = "bold 48px Georgia, serif";
+      ctx.font = `bold ${Math.floor(w / 18)}px Georgia, serif`;
       ctx.textAlign = "center";
-      wrapText(ctx, title, w / 2, h / 2 - 40, w - 120, 56);
+      wrapText(ctx, title, w / 2, h / 2 - h * 0.05, w - w * 0.15, Math.floor(w / 16));
       ctx.fillStyle = "#94a3b8";
-      ctx.font = "20px system-ui, sans-serif";
-      ctx.fillText(subtitle, w / 2, h / 2 + 80);
+      ctx.font = `${Math.floor(w / 40)}px system-ui, sans-serif`;
+      ctx.fillText(subtitle, w / 2, h / 2 + h * 0.12);
       ctx.fillStyle = "#22d3ee";
-      ctx.fillRect(w / 2 - 40, h / 2 + 100, 80, 4);
+      ctx.fillRect(w / 2 - w * 0.05, h / 2 + h * 0.16, w * 0.1, h * 0.005);
     },
   },
   {
@@ -78,14 +95,14 @@ const COVERS: CoverVariant[] = [
       ctx.fillStyle = "#ecfdf5";
       ctx.fillRect(0, 0, w, h);
       ctx.fillStyle = "#065f46";
-      ctx.font = "bold 48px Georgia, serif";
+      ctx.font = `bold ${Math.floor(w / 18)}px Georgia, serif`;
       ctx.textAlign = "center";
-      wrapText(ctx, title, w / 2, h / 2 - 40, w - 120, 56);
+      wrapText(ctx, title, w / 2, h / 2 - h * 0.05, w - w * 0.15, Math.floor(w / 16));
       ctx.fillStyle = "#047857";
-      ctx.font = "20px system-ui, sans-serif";
-      ctx.fillText(subtitle, w / 2, h / 2 + 80);
+      ctx.font = `${Math.floor(w / 40)}px system-ui, sans-serif`;
+      ctx.fillText(subtitle, w / 2, h / 2 + h * 0.12);
       ctx.fillStyle = "#10b981";
-      ctx.fillRect(w / 2 - 40, h / 2 + 100, 80, 4);
+      ctx.fillRect(w / 2 - w * 0.05, h / 2 + h * 0.16, w * 0.1, h * 0.005);
     },
   },
   {
@@ -98,14 +115,14 @@ const COVERS: CoverVariant[] = [
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, w, h);
       ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 48px Georgia, serif";
+      ctx.font = `bold ${Math.floor(w / 18)}px Georgia, serif`;
       ctx.textAlign = "center";
-      wrapText(ctx, title, w / 2, h / 2 - 40, w - 120, 56);
+      wrapText(ctx, title, w / 2, h / 2 - h * 0.05, w - w * 0.15, Math.floor(w / 16));
       ctx.fillStyle = "rgba(255,255,255,0.9)";
-      ctx.font = "20px system-ui, sans-serif";
-      ctx.fillText(subtitle, w / 2, h / 2 + 80);
+      ctx.font = `${Math.floor(w / 40)}px system-ui, sans-serif`;
+      ctx.fillText(subtitle, w / 2, h / 2 + h * 0.12);
       ctx.fillStyle = "rgba(255,255,255,0.4)";
-      ctx.fillRect(w / 2 - 40, h / 2 + 100, 80, 4);
+      ctx.fillRect(w / 2 - w * 0.05, h / 2 + h * 0.16, w * 0.1, h * 0.005);
     },
   },
 ];
@@ -143,22 +160,26 @@ export default function CoverGenerator({
   onClose,
 }: CoverGeneratorProps) {
   const [selectedCover, setSelectedCover] = useState("minimal");
+  const [selectedSize, setSelectedSize] = useState("standard");
   const [downloading, setDownloading] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
+  const currentSize = COVER_SIZES.find((s) => s.id === selectedSize) || COVER_SIZES[0];
+
   const renderCover = useCallback(
-    (coverId: string) => {
+    (coverId: string, sizeId: string) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
       const cover = COVERS.find((c) => c.id === coverId);
+      const size = COVER_SIZES.find((s) => s.id === sizeId) || COVER_SIZES[0];
       if (!cover) return;
 
-      canvas.width = 800;
-      canvas.height = 1100;
-      cover.render(ctx, 800, 1100, title, subtitle || "A Visual Learning Guide");
+      canvas.width = size.width;
+      canvas.height = size.height;
+      cover.render(ctx, size.width, size.height, title, subtitle || "A Visual Learning Guide");
     },
     [title, subtitle]
   );
@@ -170,22 +191,23 @@ export default function CoverGenerator({
     setDownloading(true);
     try {
       const link = document.createElement("a");
-      link.download = `${title.replace(/[^a-z0-9]/gi, "-").toLowerCase()}-cover.png`;
+      const sizeLabel = currentSize.id !== "standard" ? `-${currentSize.id}` : "";
+      link.download = `${title.replace(/[^a-z0-9]/gi, "-").toLowerCase()}-cover${sizeLabel}.png`;
       link.href = canvas.toDataURL("image/png");
       link.click();
     } finally {
       setDownloading(false);
     }
-  }, [title]);
+  }, [title, currentSize]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="mx-4 max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl border border-card-border bg-card p-6">
+      <div className="mx-4 max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-card-border bg-card p-6">
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h2 className="text-xl font-bold text-foreground">Download Cover</h2>
             <p className="mt-1 text-sm text-text-muted">
-              Choose an attractive cover for your ebook
+              Choose a style and size for your ebook cover
             </p>
           </div>
           <button
@@ -198,7 +220,7 @@ export default function CoverGenerator({
           </button>
         </div>
 
-        <div className="grid gap-6 md:grid-cols-[1fr_300px]">
+        <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
           {/* Cover variants */}
           <div className="space-y-4">
             <h3 className="text-sm font-semibold text-foreground">Choose a style</h3>
@@ -208,7 +230,7 @@ export default function CoverGenerator({
                   key={cover.id}
                   onClick={() => {
                     setSelectedCover(cover.id);
-                    renderCover(cover.id);
+                    renderCover(cover.id, selectedSize);
                   }}
                   className={`rounded-xl border p-3 text-left transition-all ${
                     selectedCover === cover.id
@@ -225,6 +247,30 @@ export default function CoverGenerator({
                 </button>
               ))}
             </div>
+
+            {/* Size selector */}
+            <div className="mt-4">
+              <h3 className="mb-3 text-sm font-semibold text-foreground">Choose a size</h3>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {COVER_SIZES.map((size) => (
+                  <button
+                    key={size.id}
+                    onClick={() => {
+                      setSelectedSize(size.id);
+                      renderCover(selectedCover, size.id);
+                    }}
+                    className={`rounded-lg border p-2.5 text-left transition-all ${
+                      selectedSize === size.id
+                        ? "border-accent/60 bg-accent/10 ring-1 ring-accent/30"
+                        : "border-card-border bg-background hover:border-accent/30"
+                    }`}
+                  >
+                    <span className="text-xs font-medium text-foreground">{size.name}</span>
+                    <span className="mt-0.5 block text-[10px] text-text-muted">{size.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
 
           {/* Preview + download */}
@@ -233,8 +279,11 @@ export default function CoverGenerator({
               <canvas
                 ref={canvasRef}
                 className="h-auto w-full"
-                style={{ aspectRatio: "800/1100" }}
+                style={{ aspectRatio: `${currentSize.width}/${currentSize.height}` }}
               />
+            </div>
+            <div className="text-center text-xs text-text-muted">
+              {currentSize.width} × {currentSize.height} px
             </div>
             <button
               onClick={handleDownload}
