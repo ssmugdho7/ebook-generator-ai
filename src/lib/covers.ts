@@ -393,7 +393,7 @@ const KEYWORD_MAP: { cat: string; keywords: string[] }[] = [
   { cat: "security", keywords: ["security", "hack", "hacking", "hacker", "cyber", "cybersecurity", "privacy", "encrypt", "pentest", "threat", "password", "vulnerab"] },
   { cat: "finance", keywords: ["finance", "financial", "money", "invest", "investing", "investor", "stock", "trading", "crypto", "cryptocurrency", "bitcoin", "budget", "wealth", "saving", "savings", "debt", "retirement", "banking"] },
   { cat: "marketing", keywords: ["market", "marketing", "growth", "sales", "seo", "brand", "branding", "social media", "advertis", "content", "startup", "audience", "launch"] },
-  { cat: "health", keywords: ["health", "fitness", "nutrition", "diet", "wellness", "yoga", "workout", "sleep", "mental", "habit", "muscle", "meditation", "stress", "heart health"] },
+  { cat: "health", keywords: ["health", "fitness", "nutrition", "diet", "wellness", "yoga", "workout", "sleep", "mental", "habit", "muscle", "meditation", "stress", "heart health", "gym", "exercise", "weight", "protein", "supplement", "testosterone", "hormone", "cardio", "strength", "lean", "fat", "abs", "biceps", "chest", "legs", "squat", "deadlift", "bench", "bulk", "cut", "shred", "blueprint", "physique", "body", "regimen", "training", "endurance", "stamina", "recovery", "built", "ironclad", "male"] },
   { cat: "food", keywords: ["cook", "cooking", "recipe", "kitchen", "food", "bake", "baking", "bread", "meal", "culinary", "chef", "wine"] },
   { cat: "nature", keywords: ["garden", "gardening", "plant", "plants", "nature", "grow", "growing", "farming", "green", "organic", "soil", "harvest", "wild"] },
   { cat: "science", keywords: ["science", "physics", "chemistry", "biology", "lab", "research", "math", "mathematics", "universe", "quantum", "genetics", "experiment", "theory"] },
@@ -404,7 +404,7 @@ const KEYWORD_MAP: { cat: string; keywords: string[] }[] = [
   { cat: "education", keywords: ["education", "educate", "learn", "learning", "course", "teach", "teaching", "study", "school", "student", "teacher", "exam", "tutor", "curriculum"] },
   { cat: "travel", keywords: ["travel", "trip", "adventure", "explore", "world", "map", "journey", "wander", "backpack", "destination"] },
   { cat: "gaming", keywords: ["game", "gaming", "rpg", "esports", "play", "board game", "video game", "level", "strategy"] },
-  { cat: "self-help", keywords: ["self-help", "mindful", "mindfulness", "meditate", "meditation", "happiness", "habit", "mindset", "spirituality", "manifest", "positive"] },
+  { cat: "self-help", keywords: ["self-help", "mindful", "mindfulness", "meditate", "meditation", "happiness", "habit", "mindset", "spirituality", "manifest", "positive", "blueprint", "routine", "discipline", "goal", "routine", "improve", "growth", "change", "transform", "better", "success"] },
   { cat: "pets", keywords: ["dog", "cat", "pet", "pets", "animal", "puppy", "kitten"] },
   { cat: "parenting", keywords: ["baby", "parent", "parenting", "mom", "dad", "pregnancy", "toddler", "child", "kids"] },
 ];
@@ -426,10 +426,11 @@ export function detectTopic(text: string): Topic {
   if (bestCat) {
     return { ...bestCat, icons: bestCat.icons.filter((id) => iconById(id)) };
   }
+  // No confident match — omit icons entirely rather than showing unrelated ones
   return {
     category: "general",
     hero: "orb",
-    icons: ["sparkles", "target", "layers"].filter((id) => iconById(id)),
+    icons: [],
     punchFallback: null,
   };
 }

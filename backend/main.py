@@ -21,9 +21,10 @@ load_dotenv()
 
 app = FastAPI(title="AI Ebook Generator API")
 
+# Allow all origins in production, restrict in development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
