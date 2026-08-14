@@ -181,6 +181,9 @@ def check_templates() -> list:
         fails = templatesmod.verify_template_code_contrast(tmpl)
         if fails:
             problems.append(f"{info['id']}: contrast {fails}")
+        tfails = templatesmod.verify_template_text_contrast(tmpl)
+        if tfails:
+            problems.append(f"{info['id']}: text contrast {tfails}")
         css = templatesmod.build_template_css(tmpl)
         for needle in (".codehilite", ".callout-tip", ".mermaid"):
             if needle not in css:
@@ -294,6 +297,11 @@ def main() -> int:
         status = "PASS" if not failures else "FAIL"
         print(f"[{status}] Bug 1 contrast ({theme}): {len(failures)} failures {failures}")
         ok = ok and not failures
+
+        tfails = pipeline.verify_theme_text_contrast(theme)
+        status = "PASS" if not tfails else "FAIL"
+        print(f"[{status}] Text contrast ({theme}): {tfails or 'ok'}")
+        ok = ok and not tfails
 
         near_empty, outline, goto_links, leak, missing_diagram, elapsed = check_bugs_2_and_3(theme, 4)
         problems = []

@@ -142,6 +142,44 @@ def sanitize_mermaid_source(source: str) -> str:
     return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", source)
 
 
+_CLASSDEF_COLOR_RE = re.compile(
+    r"(classDef\s+\w+\s+[^{]*?fill:\s*)(#[0-9a-fA-F]{3,6})([^,}]*)"
+    r"(,\s*color:\s*#[0-9a-fA-F]{3,6})?"
+)
+
+
+def fix_mermaid_text_contrast(source: str) -> str:
+    """Rewrite every `classDef ... fill:...,color:...` so the label color is
+    guaranteed to contrast with the box fill (WCAG AA, 4.5:1).
+
+    Also handles `style ... fill:...,color:...` lines. This is the systemic
+    guard that catches LLM-generated diagram colors that would otherwise be
+    invisible (e.g. dark text on a dark fill). It only rewrites the text color
+    (never the fill/stroke), choosing black or white — whichever contrasts
+    better — so the diagram's meaning is preserved.
+    """
+    from templates import hex_to_6
+
+    lines = source.split("\n")
+    for i, ln in enumerate(lines):
+        stripped = ln.strip()
+        if not (stripped.startswith("classDef") or stripped.startswith("style")):
+            continue
+        fill_m = re.search(r"fill:\s*(#[0-9a-fA-F]{3,6})", ln)
+        if not fill_m:
+            continue
+        fill = hex_to_6(fill_m.group(1))
+        best = _pick_best_text_color(fill)
+        if re.search(r"color:\s*#[0-9a-fA-F]{3,6}", ln):
+            ln = re.sub(r"color:\s*#[0-9a-fA-F]{3,6}", f"color:{best}", ln)
+        else:
+            # no explicit color: mermaid uses the theme default, which may be
+            # invisible on this fill — pin an explicit contrast-safe one.
+            ln = ln.rstrip().rstrip(",") + f",color:{best}"
+        lines[i] = ln
+    return "\n".join(lines)
+
+
 def lint_mermaid_source(source: str) -> List[str]:
     """Return a list of problems found in a mermaid definition.
 
@@ -249,6 +287,7 @@ def _extract_mermaid(content: str):
         if problems:
             print(f"MERMAID_LINT {key}: {problems} -> fallback")
             definition = _fallback_mermaid_for_source(definition)
+        definition = fix_mermaid_text_contrast(definition)
         defs[key] = definition
         parts.append(f"{_MERMAID_PREFIX}{key}{_MERMAID_SUFFIX}\n")
         pos = m.end()
@@ -397,6 +436,98 @@ def _wcag_contrast(a: str, b: str) -> float:
     return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
 
 
+def _darken_to_contrast(color: str, bg: str, target: float = 4.5) -> str:
+    """Blend `color` toward black until it passes WCAG AA against `bg`."""
+    if _wcag_contrast(color, bg) >= target:
+        return color
+    r, g, b = int(color[1:3], 16), int(color[3:5], 16), int(color[5:7], 16)
+    for step in range(1, 100):
+        k = step / 100.0
+        c = "#%02x%02x%02x" % (
+            max(0, int(r * (1 - k))),
+            max(0, int(g * (1 - k))),
+            max(0, int(b * (1 - k))),
+        )
+        if _wcag_contrast(c, bg) >= target:
+            return c
+    return "#000000"
+
+
+def _lighten_to_contrast(color: str, bg: str, target: float = 4.5) -> str:
+    """Blend `color` toward white until it passes WCAG AA against `bg`."""
+    if _wcag_contrast(color, bg) >= target:
+        return color
+    r, g, b = int(color[1:3], 16), int(color[3:5], 16), int(color[5:7], 16)
+    for step in range(1, 100):
+        k = step / 100.0
+        c = "#%02x%02x%02x" % (
+            min(255, int(r + (255 - r) * k)),
+            min(255, int(g + (255 - g) * k)),
+            min(255, int(b + (255 - b) * k)),
+        )
+        if _wcag_contrast(c, bg) >= target:
+            return c
+    return "#ffffff"
+
+
+def _ensure_contrast(color: str, bg: str, target: float = 4.5) -> str:
+    """Return a text color that passes WCAG AA against `bg`, preserving hue.
+
+    If the color is already readable it is returned unchanged; otherwise it is
+    darkened on light backgrounds and lightened on dark backgrounds.
+    """
+    if _wcag_contrast(color, bg) >= target:
+        return color
+    from templates import hex_to_6
+
+    color = hex_to_6(color)
+    bg = hex_to_6(bg)
+    lum_c = _lum_chan(color)
+    lum_b = _lum_chan(bg)
+    if lum_c <= lum_b:
+        return _darken_to_contrast(color, bg, target)
+    return _lighten_to_contrast(color, bg, target)
+
+
+def _lum_chan(hexc: str) -> float:
+    """Relative luminance of a #rrggbb color (for direction picking)."""
+    r, g, b = int(hexc[1:3], 16), int(hexc[3:5], 16), int(hexc[5:7], 16)
+
+    def _ch(c: float) -> float:
+        c = c / 255.0
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+    return 0.2126 * _ch(r) + 0.7152 * _ch(g) + 0.0722 * _ch(b)
+
+
+def _header_colors(accent: str, target: float = 4.5) -> tuple:
+    """Pick (bg, fg) for a solid header so the label passes WCAG AA."""
+    if _wcag_contrast("#ffffff", accent) >= target:
+        return accent, "#ffffff"
+    if _wcag_contrast("#1f2430", accent) >= target:
+        return accent, "#1f2430"
+    bg = _darken_to_contrast(accent, "#ffffff", target)
+    if _wcag_contrast("#ffffff", bg) >= target:
+        return bg, "#ffffff"
+    return accent, "#1f2430"
+
+
+def _pick_best_text_color(bg: str) -> str:
+    """Return the text color (black or white) with the best contrast on `bg`.
+
+    This is the auto-adjust fallback for dynamically generated elements
+    (diagram boxes, connector labels) whose colors aren't known up front:
+    whichever of white / dark passes WCAG AA (or is closest to passing) wins.
+    """
+    c_white = _wcag_contrast("#ffffff", bg)
+    c_dark = _wcag_contrast("#1f2430", bg)
+    if c_white >= 4.5:
+        return "#ffffff"
+    if c_dark >= 4.5:
+        return "#1f2430"
+    return "#ffffff" if c_white >= c_dark else "#1f2430"
+
+
 def verify_code_contrast(theme_key: str) -> List[str]:
     """Return token classes whose color fails WCAG AA (4.5:1) vs the code box."""
     t = THEMES[theme_key]
@@ -409,6 +540,26 @@ def verify_code_contrast(theme_key: str) -> List[str]:
             color = "#" + "".join(c * 2 for c in color[1:])
         if _wcag_contrast(color, bg) < 4.5:
             failures.append(f"{cls} ({color})")
+    return failures
+
+
+def verify_theme_text_contrast(theme_key: str) -> List[str]:
+    """Return text/background pairings that fail WCAG AA (4.5:1)."""
+    t = THEMES[theme_key]
+    failures = []
+
+    def check(fg, bg, label):
+        if _wcag_contrast(fg, bg) < 4.5:
+            failures.append(f"{label}: {fg} on {bg}")
+
+    check(t["text"], t["page_bg"], "body text")
+    check(t["heading"], t["page_bg"], "headings")
+    check(t["muted"], t["page_bg"], "muted text")
+    check(t["muted"], t["block_bg"], "muted in blockquote")
+    check(t["heading"], t["block_bg"], "inline code chips")
+    check(_ensure_contrast(t["accent"], t["page_bg"]), t["page_bg"], "accent-as-text")
+    th_bg, th_fg = _header_colors(t["accent"])
+    check(th_fg, th_bg, "table header")
     return failures
 
 
@@ -459,8 +610,8 @@ THEMES = {
         "page_bg": "#ffffff",
         "text": "#2d3748",
         "heading": "#1a202c",
-        "accent": "#6366f1",
-        "muted": "#718096",
+        "accent": "#5f5ee8",
+        "muted": "#5f6c7d",
         "code_bg": "#f4f4f7",
         "code_text": "#1a1a1a",
         "code_line": "#e2e8f0",
@@ -489,6 +640,76 @@ THEMES = {
 }
 
 
+def mermaid_theme_vars(template: dict) -> dict:
+    """Build mermaid `themeVariables` from a template's palette so diagrams
+    inherit the active design instead of shipping hardcoded colors.
+
+    Every text color is contrast-guarded against its fill (4.5:1); if a fill
+    can't carry a colored text safely, black or white is chosen automatically.
+    """
+    dia = template.get("diagram", {})
+    pal = template.get("palette", {})
+    box_fill = dia.get("box_fill", "#ffffff")
+    box_stroke = dia.get("box_stroke", pal.get("accent", "#4f46e5"))
+    sub_bg = dia.get("sub_bg", pal.get("accent_soft", "#eef2ff"))
+    text = dia.get("text", pal.get("text", "#1f2430"))
+    edge = dia.get("edge", box_stroke)
+
+    # node + actor text must read on their fill
+    node_text = _ensure_contrast(text, box_fill)
+    sub_text = _ensure_contrast(text, sub_bg)
+    return {
+        "fontFamily": "Inter, system-ui, sans-serif",
+        "fontSize": "14px",
+        "primaryColor": box_fill,
+        "primaryTextColor": node_text,
+        "primaryBorderColor": box_stroke,
+        "lineColor": edge,
+        "edgeLabelBackground": "#ffffff",
+        "edgeLabelForeground": _pick_best_text_color("#ffffff"),
+        "secondaryColor": sub_bg,
+        "secondaryTextColor": sub_text,
+        "tertiaryColor": sub_bg,
+        "tertiaryTextColor": sub_text,
+        "noteBkgColor": sub_bg,
+        "noteTextColor": sub_text,
+        "noteBorderColor": box_stroke,
+        "actorBkg": box_fill,
+        "actorBorder": box_stroke,
+        "actorTextColor": node_text,
+        "signalColor": edge,
+        "signalTextColor": _pick_best_text_color("#ffffff"),
+    }
+
+
+def mermaid_fallback_colors(template: dict) -> list:
+    """A palette of (fill, stroke, text) used by the box-and-arrow fallback
+    diagram. Every entry's text is contrast-guarded against its fill."""
+    pal = template.get("palette", {})
+    dia = template.get("diagram", {})
+    accent = pal.get("accent", "#4f46e5")
+    box_stroke = dia.get("box_stroke", accent)
+    edge = dia.get("edge", box_stroke)
+    box_fill = dia.get("box_fill", "#ffffff")
+    base_fills = [
+        box_fill,
+        dia.get("sub_bg", pal.get("accent_soft", "#eef2ff")),
+        pal.get("block_bg", "#f8fafc"),
+        pal.get("accent_soft", "#eef2ff"),
+        pal.get("code_bg", "#f6f7fb"),
+    ]
+    colors = []
+    for fill in base_fills:
+        colors.append(
+            {
+                "fill": fill,
+                "stroke": box_stroke if fill != box_fill else accent,
+                "text": _pick_best_text_color(fill),
+            }
+        )
+    return colors
+
+
 def css_from_vars(v: dict) -> str:
     """Build the shared stylesheet from a vars dict.
 
@@ -501,6 +722,16 @@ def css_from_vars(v: dict) -> str:
     radius = v.get("radius", "3mm")
     callouts = v.get("callouts", {})
     dia = v.get("diagram", {})
+
+    # ---- WCAG AA text guards: no text may sit on a background it can't pass
+    page_bg = v.get("page_bg", "#fff")
+    block_bg = v.get("block_bg", "#fafafa")
+    accent_text = _ensure_contrast(accent or "#000", page_bg)  # h3, links, TOC nums
+    muted = v.get("muted", "#666")
+    muted = _ensure_contrast(muted, page_bg)
+    muted = _ensure_contrast(muted, block_bg)  # blockquote sits on block_bg
+    th_bg, th_fg = _header_colors(accent or "#000")
+    err_color = _ensure_contrast("#b00020", page_bg)
 
     header = """\
 @page {
@@ -534,7 +765,7 @@ h2 { font-size: 15pt; margin: 9mm 0 3mm; padding-left: 3mm;
      border-left: 3.5px solid ACCENT; }
 h2.title-sm { font-size: 13pt; border-left-width: 2.5px; }
 h2.title-lg { font-size: 18pt; }
-h3 { font-size: 12pt; margin: 5mm 0 2mm; color: ACCENT; }
+h3 { font-size: 12pt; margin: 5mm 0 2mm; color: ACCENT_TEXT; }
 
 p { margin: 0 0 2.5mm; text-align: justify; orphans: 3; widows: 3; }
 ul, ol { margin: 0 0 3mm; padding-left: 6mm; }
@@ -542,7 +773,7 @@ li { margin-bottom: 1mm; orphans: 2; widows: 2; }
 blockquote { margin: 3mm 0; padding: 2.5mm 4mm; border-left: 3px solid ACCENT;
              background: BLOCK_BG; color: MUTED; font-style: italic; }
 strong { color: HEADING; }
-a { color: ACCENT; text-decoration: none; }
+a { color: ACCENT_TEXT; text-decoration: none; }
 hr { border: 0; border-top: 1px solid CODE_LINE; margin: 4mm 0; }
 img { max-width: 100%; }
 
@@ -562,9 +793,8 @@ img { max-width: 100%; }
               line-height: 1.45; overflow: hidden; break-inside: avoid;
               page-break-inside: avoid; margin: 3mm 0; }
 .codehilite pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
-code { font-family: MONO; font-size: 8.8pt; background: CODE_BG;
+code { font-family: MONO; font-size: 8.8pt; background: BLOCK_BG; color: HEADING;
        padding: 0 1.5mm; border-radius: 1.5mm; }
-p code { background: BLOCK_BG; color: HEADING; }
 .codehilite code { background: transparent; padding: 0; color: inherit; }
 
 /* language label stays glued to code */
@@ -576,7 +806,7 @@ figure.codeblock .codehilite { margin: 0; }
 /* ---------- tables ---------- */
 table { width: 100%; border-collapse: collapse; margin: 3mm 0; font-size: 9pt;
         break-inside: avoid; page-break-inside: avoid; }
-th { background: ACCENT; color: #fff; text-align: left; padding: 2mm 2.5mm; }
+th { background: TH_BG; color: TH_FG; text-align: left; padding: 2mm 2.5mm; }
 td { border-bottom: 0.4pt solid CODE_LINE; padding: 2mm 2.5mm; }
 tr:nth-child(even) td { background: BLOCK_BG; }
 
@@ -588,10 +818,10 @@ tr:nth-child(even) td { background: BLOCK_BG; }
 .mermaid .node rect, .mermaid .node polygon, .mermaid .node circle {
   stroke-width: 2px; }
 .mermaid .edgePath .path { stroke: #64748b; stroke-width: 2px; }
-.mermaid .edgeLabel { font-size: 12px; background: #fff; padding: 2px 6px;
+.mermaid .edgeLabel { font-size: 12px; background: #fff; color: #1e293b; padding: 2px 6px;
                        border-radius: 4px; }
 .mermaid .cluster rect { stroke-width: 2px; rx: 8; ry: 8; }
-.merr { color: #b00020; font-size: 9pt; }
+.merr { color: ERR_COLOR; font-size: 9pt; }
 
 /* ---------- cover / title ---------- */
 .cover-header { string-set: chap-title content(); }
@@ -606,7 +836,7 @@ h1.chapter-title { font-size: 26pt; text-align: center; margin-top: 70mm; }
 .toc li { counter-increment: toc; display: flex; justify-content: space-between;
           align-items: baseline; padding: 1.6mm 0; border-bottom: 0.3pt solid CODE_LINE;
           font-size: 11pt; }
-.toc li::before { content: counter(toc) ".  "; color: ACCENT; font-weight: bold; }
+.toc li::before { content: counter(toc) ".  "; color: ACCENT_TEXT; font-weight: bold; }
 .toc li a { color: TEXT; text-decoration: none; }
 .toc li a:hover { color: ACCENT; }
 .toc-pg { color: MUTED; min-width: 8mm; text-align: right; margin-left: 4mm; }
@@ -629,19 +859,21 @@ h1.chapter-title { font-size: 26pt; text-align: center; margin-top: 70mm; }
         for k in ("line", "box", "cluster")
     )
 
-    css = body.replace("PAGE_BG", v.get("page_bg", "#fff")).replace("TEXT", v.get("text", "#000"))
-    css = css.replace("HEADING", v.get("heading", "#000")).replace("ACCENT", accent or "#000")
-    css = css.replace("ACCENT_SOFT", accent_soft)
-    css = css.replace("MUTED", v.get("muted", "#666"))
+    css = body.replace("PAGE_BG", v.get("page_bg", "#fff"))
+    css = css.replace("ACCENT_TEXT", accent_text).replace("CODE_TEXT", v.get("code_text", "#111"))
+    css = css.replace("ACCENT_SOFT", accent_soft).replace("ACCENT", accent or "#000")
+    css = css.replace("TEXT", v.get("text", "#000"))
+    css = css.replace("HEADING", v.get("heading", "#000"))
+    css = css.replace("MUTED", muted)
     css = css.replace("CODE_BG", v.get("code_bg", "#f5f5f5")).replace("CODE_LINE", v.get("code_line", "#ddd"))
-    css = css.replace("CODE_TEXT", v.get("code_text", "#111"))
     css = css.replace("BLOCK_BG", v.get("block_bg", "#fafafa"))
     css = css.replace("FONT", v.get("font", "sans-serif"))
     css = css.replace("MONO", v.get("mono", "monospace"))
     css = css.replace("RADIUS", radius)
+    css = css.replace("TH_BG", th_bg).replace("TH_FG", th_fg).replace("ERR_COLOR", err_color)
     css = css.replace("CC_BORDER", accent or "#000").replace("CC_BG", accent_soft)
     cover_css = cover.replace("TITLE_BG", v.get("title_page_bg", v.get("page_bg", "#fff")))
-    header_css = header.replace("MUTED", v.get("muted", "#666")).replace("ACCENT", accent or "#000")
+    header_css = header.replace("MUTED", muted).replace("ACCENT", accent or "#000")
     return header_css + cover_css + "\n" + css + "\n" + callout_css + diagram_css
 
 
@@ -739,19 +971,30 @@ async def render_pdf(
     out_path: str,
     page_map: Dict[str, int] = None,
     document: str = None,
+    template: dict = None,
 ) -> str:
     """Render the final styled PDF. Returns output path.
 
     If `document` is given (a fully-assembled HTML string from
     book.render_book_document), it is used directly instead of building the
-    document from markdown+theme.
+    document from markdown+theme. When `template` is provided, mermaid
+    diagrams are themed from that template's palette (colors, fonts) instead
+    of a hardcoded default.
     """
     document = document or build_document(markdown_text, theme_key, page_map)
+    template = template or {}
 
     from playwright.async_api import async_playwright
 
     with open(MERMAID_SRC, "r", encoding="utf-8") as f:
         mermaid_js = f.read()
+
+    import json as _json
+
+    tmvars = mermaid_theme_vars(template)
+    fallback_colors = mermaid_fallback_colors(template)
+    tmvars_json = _json.dumps(tmvars)
+    colors_json = _json.dumps(fallback_colors)
 
     async with async_playwright() as p:
         browser = await p.chromium.launch()
@@ -760,29 +1003,12 @@ async def render_pdf(
             await page.set_content(document, wait_until="load")
             # inject mermaid and render diagrams into real SVG
             await page.add_script_tag(content=mermaid_js)
-            await page.evaluate(r"""(async () => {
+            js = r"""(async () => {
               if (!window.mermaid) return;
-              mermaid.initialize({ startOnLoad: false, theme: 'base',
-                                   securityLevel: 'loose',
-                                   flowchart: { htmlLabels: true, useMaxWidth: false, curve: 'cardinal', padding: 15 },
-                                   themeVariables: {
-                                     fontFamily: 'Inter, system-ui, sans-serif',
-                                     fontSize: '14px',
-                                     primaryColor: '#dbeafe',
-                                     primaryTextColor: '#1e3a5f',
-                                     primaryBorderColor: '#2563eb',
-                                     lineColor: '#64748b',
-                                     secondaryColor: '#d1fae5',
-                                     tertiaryColor: '#fef3c7',
-                                     noteBkgColor: '#fef3c7',
-                                     noteTextColor: '#78350f',
-                                     noteBorderColor: '#d97706',
-                                     actorBkg: '#dbeafe',
-                                     actorBorder: '#2563eb',
-                                     actorTextColor: '#1e3a5f',
-                                     signalColor: '#64748b',
-                                     signalTextColor: '#1e293b'
-                                   } });
+               mermaid.initialize({ startOnLoad: false, theme: 'base',
+                                    securityLevel: 'loose',
+                                    flowchart: { htmlLabels: true, useMaxWidth: false, curve: 'cardinal', padding: 15 },
+                                    themeVariables: __TMRVARS__ });
               const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;')
                                  .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
               const buildFallbackSvg = (id, src) => {
@@ -790,40 +1016,82 @@ async def render_pdf(
                 const re = /[A-Za-z0-9_-]+[\[({]([^\])\}]*)[\])\}]/g;
                 let m;
                 while ((m = re.exec(src))) {
-                  let l = (m[1] || '').replace(/[{}[\]()"|`<>]/g, ' ')
-                                      .replace(/\s+/g, ' ').trim().slice(0, 40);
+                  let l = (m[1] || '').replace(/<br\s*\/?>/gi, ' ')
+                                      .replace(/<[^>]*>/g, ' ')
+                                      .replace(/[{}[\]()"|`<>]/g, ' ')
+                                      .replace(/\s+/g, ' ').trim().slice(0, 120);
                   if (l && !labels.includes(l)) labels.push(l);
                 }
                 while (labels.length < 2) {
                   labels.push(['Core Concept', 'Implementation', 'Key Takeaways'][labels.length]);
                 }
                 labels.length = Math.min(labels.length, 5);
-                const colors = [
-                  { fill: '#dbeafe', stroke: '#2563eb', text: '#1e3a5f' },
-                  { fill: '#d1fae5', stroke: '#059669', text: '#064e3b' },
-                  { fill: '#ede9fe', stroke: '#7c3aed', text: '#3b0764' },
-                  { fill: '#fef3c7', stroke: '#d97706', text: '#78350f' },
-                  { fill: '#fce7f3', stroke: '#db2777', text: '#831843' },
-                ];
-                const nw = 160, gap = 48, h = 64, pad = 24;
-                const w = labels.length * nw + (labels.length - 1) * gap + pad * 2;
-                const H = h + pad * 2 + 10, mid = pad + h / 2, aid = 'a' + id.replace(/[^a-zA-Z0-9]/g, '');
-                let svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + H +
-                          '" viewBox="0 0 ' + w + ' ' + H + '" font-family="Inter, system-ui, sans-serif">';
+                const colors = __COLORS__;
+                // measure real text width so boxes auto-size instead of clipping
+                const measure = document.createElement('canvas').getContext('2d');
+                measure.font = '600 13px Inter, system-ui, sans-serif';
+                const wordWidth = (word) => measure.measureText(word).width;
+                const hardBreak = (word, maxW) => {
+                  const res = []; let cur = '';
+                  for (const ch of word) {
+                    if (cur && wordWidth(cur + ch) > maxW) { res.push(cur); cur = ch; }
+                    else cur += ch;
+                  }
+                  if (cur) res.push(cur);
+                  return res.length ? res : [word];
+                };
+                const wrap = (text, maxW) => {
+                  const lines = []; let cur = '';
+                  for (const w of text.split(' ')) {
+                    if (wordWidth(w) > maxW) {
+                      if (cur) lines.push(cur);
+                      cur = '';
+                      const pieces = hardBreak(w, maxW);
+                      for (const p of pieces) {
+                        if (cur) { lines.push(cur); }
+                        cur = p;
+                      }
+                      continue;
+                    }
+                    const t = cur ? cur + ' ' + w : w;
+                    if (cur && wordWidth(t) > maxW) { lines.push(cur); cur = w; }
+                    else cur = t;
+                  }
+                  if (cur) lines.push(cur);
+                  return lines.length ? lines : [''];
+                };
+                const maxW = 200, minW = 150, gap = 48, lineH = 18;
+                const padX = 24, padY = 20, topPad = 18, botPad = 18;
+                const rows = labels.map((lab) => {
+                  const lines = wrap(lab, maxW - 24);
+                  const widest = lines.reduce((a, ln) => Math.max(a, wordWidth(ln)), 0);
+                  const w = Math.min(maxW, Math.max(minW, widest + 24));
+                  const h = lines.length * lineH + topPad + botPad;
+                  return { lines, w, h };
+                });
+                const totalW = rows.reduce((a, r) => a + r.w, 0) + (rows.length - 1) * gap + padX * 2;
+                const H = rows.reduce((a, r) => Math.max(a, r.h), 0) + padY * 2;
+                const mid = H / 2, aid = 'a' + id.replace(/[^a-zA-Z0-9]/g, '');
+                let svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + totalW + '" height="' + H +
+                          '" viewBox="0 0 ' + totalW + ' ' + H + '" font-family="Inter, system-ui, sans-serif">';
                 svg += '<defs><marker id="' + aid + '" markerWidth="12" markerHeight="12" refX="10" refY="4" ' +
                        'orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,8 L10,4 z" fill="#64748b"/></marker></defs>';
-                labels.forEach((lab, i) => {
-                  const x = pad + i * (nw + gap);
+                let x = padX;
+                rows.forEach((r, i) => {
                   const c = colors[i % colors.length];
-                  svg += '<rect x="' + x + '" y="' + pad + '" width="' + nw + '" height="' + h +
+                  const y = mid - r.h / 2;
+                  svg += '<rect x="' + x + '" y="' + y + '" width="' + r.w + '" height="' + r.h +
                          '" rx="10" fill="' + c.fill + '" stroke="' + c.stroke + '" stroke-width="2"/>';
-                  svg += '<text x="' + (x + nw / 2) + '" y="' + mid + '" text-anchor="middle" ' +
-                         'dominant-baseline="middle" font-size="13" font-weight="600" fill="' + c.text + '">' + esc(lab) + '</text>';
+                  r.lines.forEach((ln, j) => {
+                    svg += '<text x="' + (x + r.w / 2) + '" y="' + (y + topPad + lineH * (j + 0.5)) +
+                           '" text-anchor="middle" dominant-baseline="middle" font-size="13" font-weight="600" fill="' +
+                           c.text + '">' + esc(ln) + '</text>';
+                  });
                   if (i > 0) {
-                    const px = pad + (i - 1) * (nw + gap) + nw;
-                    svg += '<line x1="' + (px + 4) + '" y1="' + mid + '" x2="' + (x - 4) + '" y2="' + mid +
+                    svg += '<line x1="' + (x - gap + 4) + '" y1="' + mid + '" x2="' + (x - 4) + '" y2="' + mid +
                            '" stroke="#94a3b8" stroke-width="2" marker-end="url(#' + aid + ')"/>';
                   }
+                  x += r.w + gap;
                 });
                 return svg + '</svg>';
               };
@@ -851,6 +1119,11 @@ async def render_pdf(
                 // Error if: specific error text, doubled chars in text, or no shapes at all
                 const bad = hasSyntaxError || hasMermaidVersion || hasParseError || hasRenderError || hasDoubledChars || !svg || (rectCount === 0 && textCount > 5);
                 el.innerHTML = bad ? buildFallbackSvg(el.id, def) : svg;
+                // mermaid.render leaves its temp container div (id 'svg-<el.id>')
+                // in the body holding the error graphic; remove it so a "Syntax
+                // error in text" block never leaks into the rendered page.
+                const mermaidTemp = document.getElementById('svg-' + el.id);
+                if (mermaidTemp && !el.contains(mermaidTemp)) mermaidTemp.remove();
               }
               // Fix mermaid viewBox clipping: expand viewBox to cover all content
               for (const el of Array.from(document.querySelectorAll('pre.mermaid svg'))) {
@@ -869,7 +1142,80 @@ async def render_pdf(
                   }
                 } catch(e) {}
               }
-            })()""")
+              // ---- Overflow safety net: any label wider than its box gets
+              // wrapped at the box width so text is never clipped, regardless of
+              // how long a generated label is. Runs on every diagram type
+              // (flowcharts, comparison boxes, decision trees, clusters, edges).
+              for (const svg of Array.from(document.querySelectorAll('pre.mermaid svg'))) {
+                for (const node of Array.from(svg.querySelectorAll('g.node, g.edgeLabel, g.cluster, g.actor'))) {
+                  try {
+                    const fo = node.querySelector('foreignObject');
+                    if (!fo) continue;
+                    const label = fo.querySelector('div') || fo;
+                    const shape = node.querySelector('rect, polygon');
+                    const boxW = shape ? shape.getBBox().width
+                                       : (parseFloat(fo.getAttribute('width')) || 0);
+                    if (!boxW || label.scrollWidth <= label.clientWidth + 2) continue;
+                    label.style.whiteSpace = 'normal';
+                    label.style.wordWrap = 'break-word';
+                    label.style.overflowWrap = 'break-word';
+                    label.style.maxWidth = Math.max(40, boxW - 6) + 'px';
+                  } catch(e) {}
+                }
+              }
+              // Walk every text node inside a mermaid SVG and, if its color does
+              // not contrast with the box fill behind it, flip it to black or
+              // white (whichever is better). Catches LLM-generated colors that
+              // slipped past the source-level guard (e.g. dark fill + dark text).
+              const relLum = (hex) => {
+                const r = parseInt(hex.slice(1,3),16)/255, g = parseInt(hex.slice(3,5),16)/255, b = parseInt(hex.slice(5,7),16)/255;
+                const f = (c) => c <= 0.04045 ? c/12.92 : Math.pow((c+0.055)/1.055, 2.4);
+                return 0.2126*f(r) + 0.7152*f(g) + 0.0722*f(b);
+              };
+              const contrastRatio = (a, b) => {
+                const la = relLum(a), lb = relLum(b);
+                return (Math.max(la,lb)+0.05)/(Math.min(la,lb)+0.05);
+              };
+              const bestText = (bg) => {
+                const cw = contrastRatio('#ffffff', bg), cd = contrastRatio('#1f2430', bg);
+                if (cw >= 4.5) return '#ffffff';
+                if (cd >= 4.5) return '#1f2430';
+                return cw >= cd ? '#ffffff' : '#1f2430';
+              };
+              const toHex = (v) => {
+                if (!v) return null;
+                v = String(v).trim();
+                if (/^#[0-9a-fA-F]{6}$/.test(v)) return v;
+                if (/^#[0-9a-fA-F]{3}$/.test(v)) return '#'+v[1]+v[1]+v[2]+v[2]+v[3]+v[3];
+                const m = v.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+                if (m) return '#' + [1,2,3].map(i => ('0'+parseInt(m[i]).toString(16)).slice(-2)).join('');
+                return null;
+              };
+              for (const svg of Array.from(document.querySelectorAll('pre.mermaid svg'))) {
+                // node boxes: find shapes carrying an explicit fill and the text they contain
+                const shapes = svg.querySelectorAll('g.node rect, g.node polygon, g.node circle, g>rect, g>circle');
+                for (const shape of shapes) {
+                  const fill = toHex(shape.getAttribute('fill') || shape.style.fill);
+                  if (!fill) continue;
+                  const g = shape.closest('g');
+                  if (!g) continue;
+                  const texts = Array.from(g.querySelectorAll('text'));
+                  for (const t of texts) {
+                    const col = toHex(t.getAttribute('fill') || t.style.fill);
+                    if (!col || contrastRatio(col, fill) >= 4.5) continue;
+                    t.setAttribute('fill', bestText(fill));
+                  }
+                }
+                // edge labels sit on a white pill; force dark text if invisible
+                for (const lab of Array.from(svg.querySelectorAll('.edgeLabel, g.edgeLabel'))) {
+                  lab.style.color = '#1e293b';
+                  const texts = Array.from(lab.querySelectorAll('text'));
+                  for (const t of texts) t.setAttribute('fill', '#1e293b');
+                }
+              }
+            })()"""
+            js = js.replace("__TMRVARS__", tmvars_json).replace("__COLORS__", colors_json)
+            await page.evaluate(js)
 
             # wait until every mermaid pre has been replaced by an svg (or an error)
             try:
@@ -1135,22 +1481,23 @@ flag = True and (3.14 <= 7)
     return failures
 
 
-def compile_document_to_pdf(document: str, entries) -> str:
+def compile_document_to_pdf(document: str, entries, template: dict = None) -> str:
     """Two-pass render a fully-assembled HTML document to PDF with a real TOC.
 
     `entries` is the ordered [(sec-N, title)] list used for the outline and
-    page-number verification.
+    page-number verification. `template` (optional) drives mermaid diagram
+    colors/fonts; when omitted a neutral default is used.
     """
     assets = os.path.join(os.path.dirname(__file__), "assets")
     pass_a = os.path.join(assets, f"ebook-{uuid.uuid4().hex[:8]}.pdf")
     out_path = os.path.join(assets, f"ebook-{uuid.uuid4().hex[:8]}.pdf")
 
     # Pass A: render without page numbers to discover final pagination.
-    _run_coro(render_pdf("", "Modern Tech Blog", pass_a, page_map=None, document=document))
+    _run_coro(render_pdf("", "Modern Tech Blog", pass_a, page_map=None, document=document, template=template))
     page_map = _section_pages(pass_a, entries)
 
     # Pass B: render with computed page numbers in the TOC.
-    _run_coro(render_pdf("", "Modern Tech Blog", out_path, page_map=page_map, document=document))
+    _run_coro(render_pdf("", "Modern Tech Blog", out_path, page_map=page_map, document=document, template=template))
 
     try:
         _add_outline_and_links(out_path, entries, page_map)
@@ -1163,14 +1510,14 @@ def compile_document_to_pdf(document: str, entries) -> str:
     return out_path
 
 
-def count_document_pages(document: str) -> int:
+def count_document_pages(document: str, template: dict = None) -> int:
     """Render a single pass and return the number of printed pages."""
     import fitz
 
     assets = os.path.join(os.path.dirname(__file__), "assets")
     tmp = os.path.join(assets, f"ebook-{uuid.uuid4().hex[:8]}.pdf")
     try:
-        _run_coro(render_pdf("", "Modern Tech Blog", tmp, page_map=None, document=document))
+        _run_coro(render_pdf("", "Modern Tech Blog", tmp, page_map=None, document=document, template=template))
         with fitz.open(tmp) as doc:
             return doc.page_count
     finally:

@@ -1,213 +1,160 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import LoadingSpinner from "@/components/LoadingSpinner";
+import type { TemplateInfo } from "@/lib/api";
+import {
+  COVER_SIZES,
+  COVER_STYLES,
+  renderCover,
+  rasterizeCover,
+  coverToPng,
+  detectPunchWord,
+  detectTopic,
+  getPunchOptions,
+  type CoverStyleId,
+  type CoverSize,
+  type CoverPalette,
+} from "@/lib/covers";
 
 interface CoverGeneratorProps {
   title: string;
   subtitle?: string;
-  templateId: string;
+  template?: TemplateInfo | null;
   onClose: () => void;
 }
 
-interface CoverVariant {
-  id: string;
-  name: string;
-  render: (ctx: CanvasRenderingContext2D, w: number, h: number, title: string, subtitle: string) => void;
-}
+const NONE = "__none__";
 
-interface CoverSize {
-  id: string;
-  name: string;
-  width: number;
-  height: number;
-  label: string;
-}
-
-const COVER_SIZES: CoverSize[] = [
-  { id: "standard", name: "Standard eBook", width: 1600, height: 2400, label: "1600 × 2400" },
-  { id: "kindle", name: "Amazon Kindle", width: 1600, height: 2560, label: "1600 × 2560" },
-  { id: "square", name: "Square (Social)", width: 1200, height: 1200, label: "1200 × 1200" },
-  { id: "a4", name: "A4 Portrait", width: 2480, height: 3508, label: "2480 × 3508" },
-  { id: "wide", name: "Wide Banner", width: 1920, height: 1080, label: "1920 × 1080" },
-  { id: "booklet", name: "Booklet", width: 1200, height: 1800, label: "1200 × 1800" },
-];
-
-const COVERS: CoverVariant[] = [
-  {
-    id: "minimal",
-    name: "Minimal",
-    render: (ctx, w, h, title, subtitle) => {
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, w, h);
-      ctx.fillStyle = "#1e293b";
-      ctx.font = `bold ${Math.floor(w / 18)}px Georgia, serif`;
-      ctx.textAlign = "center";
-      wrapText(ctx, title, w / 2, h / 2 - h * 0.05, w - w * 0.15, Math.floor(w / 16));
-      ctx.fillStyle = "#64748b";
-      ctx.font = `${Math.floor(w / 40)}px system-ui, sans-serif`;
-      ctx.fillText(subtitle, w / 2, h / 2 + h * 0.12);
-      ctx.fillStyle = "#3b82f6";
-      ctx.fillRect(w / 2 - w * 0.05, h / 2 + h * 0.16, w * 0.1, h * 0.005);
-    },
-  },
-  {
-    id: "gradient",
-    name: "Gradient",
-    render: (ctx, w, h, title, subtitle) => {
-      const grad = ctx.createLinearGradient(0, 0, w, h);
-      grad.addColorStop(0, "#3b82f6");
-      grad.addColorStop(1, "#8b5cf6");
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, w, h);
-      ctx.fillStyle = "#ffffff";
-      ctx.font = `bold ${Math.floor(w / 18)}px Georgia, serif`;
-      ctx.textAlign = "center";
-      wrapText(ctx, title, w / 2, h / 2 - h * 0.05, w - w * 0.15, Math.floor(w / 16));
-      ctx.fillStyle = "rgba(255,255,255,0.8)";
-      ctx.font = `${Math.floor(w / 40)}px system-ui, sans-serif`;
-      ctx.fillText(subtitle, w / 2, h / 2 + h * 0.12);
-      ctx.fillStyle = "rgba(255,255,255,0.3)";
-      ctx.fillRect(w / 2 - w * 0.05, h / 2 + h * 0.16, w * 0.1, h * 0.005);
-    },
-  },
-  {
-    id: "dark",
-    name: "Dark",
-    render: (ctx, w, h, title, subtitle) => {
-      ctx.fillStyle = "#0f172a";
-      ctx.fillRect(0, 0, w, h);
-      ctx.fillStyle = "#f1f5f9";
-      ctx.font = `bold ${Math.floor(w / 18)}px Georgia, serif`;
-      ctx.textAlign = "center";
-      wrapText(ctx, title, w / 2, h / 2 - h * 0.05, w - w * 0.15, Math.floor(w / 16));
-      ctx.fillStyle = "#94a3b8";
-      ctx.font = `${Math.floor(w / 40)}px system-ui, sans-serif`;
-      ctx.fillText(subtitle, w / 2, h / 2 + h * 0.12);
-      ctx.fillStyle = "#22d3ee";
-      ctx.fillRect(w / 2 - w * 0.05, h / 2 + h * 0.16, w * 0.1, h * 0.005);
-    },
-  },
-  {
-    id: "nature",
-    name: "Nature",
-    render: (ctx, w, h, title, subtitle) => {
-      ctx.fillStyle = "#ecfdf5";
-      ctx.fillRect(0, 0, w, h);
-      ctx.fillStyle = "#065f46";
-      ctx.font = `bold ${Math.floor(w / 18)}px Georgia, serif`;
-      ctx.textAlign = "center";
-      wrapText(ctx, title, w / 2, h / 2 - h * 0.05, w - w * 0.15, Math.floor(w / 16));
-      ctx.fillStyle = "#047857";
-      ctx.font = `${Math.floor(w / 40)}px system-ui, sans-serif`;
-      ctx.fillText(subtitle, w / 2, h / 2 + h * 0.12);
-      ctx.fillStyle = "#10b981";
-      ctx.fillRect(w / 2 - w * 0.05, h / 2 + h * 0.16, w * 0.1, h * 0.005);
-    },
-  },
-  {
-    id: "sunset",
-    name: "Sunset",
-    render: (ctx, w, h, title, subtitle) => {
-      const grad = ctx.createLinearGradient(0, 0, 0, h);
-      grad.addColorStop(0, "#f97316");
-      grad.addColorStop(1, "#ec4899");
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, w, h);
-      ctx.fillStyle = "#ffffff";
-      ctx.font = `bold ${Math.floor(w / 18)}px Georgia, serif`;
-      ctx.textAlign = "center";
-      wrapText(ctx, title, w / 2, h / 2 - h * 0.05, w - w * 0.15, Math.floor(w / 16));
-      ctx.fillStyle = "rgba(255,255,255,0.9)";
-      ctx.font = `${Math.floor(w / 40)}px system-ui, sans-serif`;
-      ctx.fillText(subtitle, w / 2, h / 2 + h * 0.12);
-      ctx.fillStyle = "rgba(255,255,255,0.4)";
-      ctx.fillRect(w / 2 - w * 0.05, h / 2 + h * 0.16, w * 0.1, h * 0.005);
-    },
-  },
-];
-
-function wrapText(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  x: number,
-  y: number,
-  maxWidth: number,
-  lineHeight: number
-) {
-  const words = text.split(" ");
-  let line = "";
-  let currentY = y;
-
-  for (const word of words) {
-    const testLine = line + word + " ";
-    const metrics = ctx.measureText(testLine);
-    if (metrics.width > maxWidth && line) {
-      ctx.fillText(line.trim(), x, currentY);
-      line = word + " ";
-      currentY += lineHeight;
-    } else {
-      line = testLine;
-    }
-  }
-  ctx.fillText(line.trim(), x, currentY);
+function dataUrlOf(canvas: HTMLCanvasElement): string {
+  return canvas.toDataURL("image/png");
 }
 
 export default function CoverGenerator({
   title,
   subtitle,
-  templateId,
+  template,
   onClose,
 }: CoverGeneratorProps) {
-  const [selectedCover, setSelectedCover] = useState("minimal");
-  const [selectedSize, setSelectedSize] = useState("standard");
-  const [downloading, setDownloading] = useState(false);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  const currentSize = COVER_SIZES.find((s) => s.id === selectedSize) || COVER_SIZES[0];
-
-  const renderCover = useCallback(
-    (coverId: string, sizeId: string) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-
-      const cover = COVERS.find((c) => c.id === coverId);
-      const size = COVER_SIZES.find((s) => s.id === sizeId) || COVER_SIZES[0];
-      if (!cover) return;
-
-      canvas.width = size.width;
-      canvas.height = size.height;
-      cover.render(ctx, size.width, size.height, title, subtitle || "A Visual Learning Guide");
-    },
-    [title, subtitle]
+  const palette: CoverPalette = useMemo(
+    () =>
+      template?.palette
+        ? {
+            page_bg: template.palette.page_bg,
+            accent: template.palette.accent,
+            heading: template.palette.heading,
+            text: template.palette.text,
+            muted: template.palette.muted,
+            accent_soft: template.palette.accent_soft,
+            block_bg: template.palette.block_bg,
+            title_page_bg: template.palette.title_page_bg,
+          }
+        : {
+            page_bg: "#ffffff",
+            accent: "#2563eb",
+            heading: "#111827",
+            text: "#374151",
+          },
+    [template]
   );
 
-  const handleDownload = useCallback(async () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+  const punchOptions = useMemo(() => getPunchOptions(title), [title]);
+  const [punch, setPunch] = useState<string>(() => {
+    const auto = detectPunchWord(title) ?? detectTopic(title).punchFallback;
+    return auto ? auto : NONE;
+  });
+  const [tagline, setTagline] = useState("");
+  const [styleId, setStyleId] = useState<CoverStyleId>("bold-editorial");
+  const [sizeId, setSizeId] = useState("standard");
+  const [downloading, setDownloading] = useState(false);
 
+  const [thumbs, setThumbs] = useState<Record<string, string>>({});
+  const [preview, setPreview] = useState<string>("");
+  const [checks, setChecks] = useState<{ ok: boolean; total: number; failed: string[] }>({
+    ok: true,
+    total: 0,
+    failed: [],
+  });
+  const renderToken = useRef(0);
+
+  const currentSize: CoverSize =
+    COVER_SIZES.find((s) => s.id === sizeId) || COVER_SIZES[0];
+
+  const buildRequest = useCallback(
+    (style: CoverStyleId, size: CoverSize) => ({
+      title,
+      subtitle: subtitle || "A Visual Learning Guide",
+      tagline,
+      punchWord: punch === NONE ? "none" : punch,
+      styleId: style,
+      size,
+      palette,
+    }),
+    [title, subtitle, tagline, punch, palette]
+  );
+
+  useEffect(() => {
+    const token = ++renderToken.current;
+    const timer = setTimeout(async () => {
+      const result = renderCover(buildRequest(styleId, currentSize));
+      setChecks({
+        ok: result.checks.every((c) => c.ok),
+        total: result.checks.length,
+        failed: result.checks.filter((c) => !c.ok).map((c) => c.label),
+      });
+      try {
+        const canvas = await rasterizeCover(result.svg, result.width, result.height, 1000);
+        if (token === renderToken.current) setPreview(dataUrlOf(canvas));
+      } catch {
+        /* preview rasterization failed; keep previous */
+      }
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [styleId, sizeId, punch, tagline, palette, buildRequest, currentSize]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const size = { id: "thumb", name: "Thumb", width: 300, height: 450, label: "300 × 450" };
+    (async () => {
+      const entries = await Promise.all(
+        COVER_STYLES.map(async (s) => {
+          const result = renderCover(buildRequest(s.id, size));
+          const canvas = await rasterizeCover(result.svg, result.width, result.height, 120);
+          return [s.id, dataUrlOf(canvas)] as const;
+        })
+      );
+      if (!cancelled) setThumbs(Object.fromEntries(entries));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [buildRequest]);
+
+  const handleDownload = useCallback(async () => {
     setDownloading(true);
     try {
+      const result = renderCover(buildRequest(styleId, currentSize));
+      const blob = await coverToPng(result.svg, result.width, result.height);
+      const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      const sizeLabel = currentSize.id !== "standard" ? `-${currentSize.id}` : "";
-      link.download = `${title.replace(/[^a-z0-9]/gi, "-").toLowerCase()}-cover${sizeLabel}.png`;
-      link.href = canvas.toDataURL("image/png");
+      const slug = title.replace(/[^a-z0-9]/gi, "-").toLowerCase();
+      link.download = `${slug}-cover-${styleId}-${currentSize.id}.png`;
+      link.href = url;
       link.click();
+      URL.revokeObjectURL(url);
     } finally {
       setDownloading(false);
     }
-  }, [title, currentSize]);
+  }, [buildRequest, styleId, currentSize, title]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="mx-4 max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-card-border bg-card p-6">
+      <div className="mx-4 max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-2xl border border-card-border bg-card p-6">
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h2 className="text-xl font-bold text-foreground">Download Cover</h2>
             <p className="mt-1 text-sm text-text-muted">
-              Choose a style and size for your ebook cover
+              5 professional layouts with automatic topic icons and WCAG contrast
             </p>
           </div>
           <button
@@ -220,70 +167,135 @@ export default function CoverGenerator({
           </button>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-          {/* Cover variants */}
-          <div className="space-y-4">
-            <h3 className="text-sm font-semibold text-foreground">Choose a style</h3>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              {COVERS.map((cover) => (
-                <button
-                  key={cover.id}
-                  onClick={() => {
-                    setSelectedCover(cover.id);
-                    renderCover(cover.id, selectedSize);
-                  }}
-                  className={`rounded-xl border p-3 text-left transition-all ${
-                    selectedCover === cover.id
-                      ? "border-accent/60 bg-accent/10 ring-1 ring-accent/30"
-                      : "border-card-border bg-background hover:border-accent/30"
-                  }`}
-                >
-                  <div className="mb-2 h-20 overflow-hidden rounded-lg bg-gradient-to-br from-blue-500/20 to-violet-500/20">
-                    <div className="flex h-full items-center justify-center text-xs text-text-muted">
-                      {cover.name}
-                    </div>
-                  </div>
-                  <span className="text-xs font-medium text-foreground">{cover.name}</span>
-                </button>
-              ))}
-            </div>
-
-            {/* Size selector */}
-            <div className="mt-4">
-              <h3 className="mb-3 text-sm font-semibold text-foreground">Choose a size</h3>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {COVER_SIZES.map((size) => (
+        <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
+          <div className="space-y-5">
+            {/* Styles */}
+            <div>
+              <h3 className="mb-3 text-sm font-semibold text-foreground">Style</h3>
+              <div className="grid grid-cols-5 gap-2">
+                {COVER_STYLES.map((style) => (
                   <button
-                    key={size.id}
-                    onClick={() => {
-                      setSelectedSize(size.id);
-                      renderCover(selectedCover, size.id);
-                    }}
-                    className={`rounded-lg border p-2.5 text-left transition-all ${
-                      selectedSize === size.id
+                    key={style.id}
+                    onClick={() => setStyleId(style.id)}
+                    className={`rounded-xl border p-2 text-left transition-all ${
+                      styleId === style.id
                         ? "border-accent/60 bg-accent/10 ring-1 ring-accent/30"
                         : "border-card-border bg-background hover:border-accent/30"
                     }`}
                   >
-                    <span className="text-xs font-medium text-foreground">{size.name}</span>
-                    <span className="mt-0.5 block text-[10px] text-text-muted">{size.label}</span>
+                    <div className="relative mb-2 aspect-[2/3] w-full overflow-hidden rounded-lg bg-neutral-200">
+                      {thumbs[style.id] ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={thumbs[style.id]}
+                          alt={style.name}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full items-center justify-center text-[10px] text-text-muted">
+                          ...
+                        </div>
+                      )}
+                    </div>
+                    <span className="block text-[11px] font-semibold text-foreground">
+                      {style.name}
+                    </span>
+                    <span className="mt-0.5 block text-[9px] leading-tight text-text-muted">
+                      {style.hint}
+                    </span>
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Options */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-semibold text-foreground">
+                  Accent word
+                </span>
+                <select
+                  value={punch}
+                  onChange={(e) => setPunch(e.target.value)}
+                  className="w-full rounded-lg border border-card-border bg-background px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
+                >
+                  <option value={NONE}>None (plain title)</option>
+                  {punchOptions.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-semibold text-foreground">
+                  Tagline (optional)
+                </span>
+                <input
+                  value={tagline}
+                  onChange={(e) => setTagline(e.target.value)}
+                  placeholder="e.g. Start building today"
+                  maxLength={60}
+                  className="w-full rounded-lg border border-card-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-text-muted focus:border-accent focus:outline-none"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-semibold text-foreground">
+                  Size
+                </span>
+                <select
+                  value={sizeId}
+                  onChange={(e) => setSizeId(e.target.value)}
+                  className="w-full rounded-lg border border-card-border bg-background px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
+                >
+                  {COVER_SIZES.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.label})
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
           </div>
 
           {/* Preview + download */}
           <div className="space-y-4">
             <div className="overflow-hidden rounded-xl border border-card-border bg-white">
-              <canvas
-                ref={canvasRef}
-                className="h-auto w-full"
-                style={{ aspectRatio: `${currentSize.width}/${currentSize.height}` }}
-              />
+              {preview ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={preview}
+                  alt="Cover preview"
+                  className="h-auto w-full"
+                  style={{ aspectRatio: `${currentSize.width}/${currentSize.height}` }}
+                />
+              ) : (
+                <div
+                  className="flex items-center justify-center text-text-muted"
+                  style={{ aspectRatio: `${currentSize.width}/${currentSize.height}` }}
+                >
+                  <LoadingSpinner size="sm" />
+                </div>
+              )}
             </div>
-            <div className="text-center text-xs text-text-muted">
-              {currentSize.width} × {currentSize.height} px
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-text-muted">
+                {currentSize.width} × {currentSize.height} px
+              </span>
+              <span
+                className={
+                  checks.ok
+                    ? "inline-flex items-center gap-1 font-medium text-emerald-600"
+                    : "inline-flex items-center gap-1 font-medium text-red-600"
+                }
+              >
+                <span
+                  className={`inline-block h-2 w-2 rounded-full ${checks.ok ? "bg-emerald-500" : "bg-red-500"}`}
+                />
+                {checks.ok
+                  ? `WCAG contrast: ${checks.total} pairs pass`
+                  : `Contrast issues: ${checks.failed.join(", ")}`}
+              </span>
             </div>
             <button
               onClick={handleDownload}
@@ -292,7 +304,7 @@ export default function CoverGenerator({
             >
               {downloading ? (
                 <>
-                  <LoadingSpinner size="sm" /> Downloading...
+                  <LoadingSpinner size="sm" /> Rendering PNG...
                 </>
               ) : (
                 <>

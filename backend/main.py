@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import time
 from typing import Optional
 
@@ -30,6 +31,56 @@ app.add_middleware(
 
 key_manager = create_key_manager()
 
+
+# ---------------------------------------------------------------------------
+# Topic detection — skip code blocks for non-programming topics
+# ---------------------------------------------------------------------------
+
+_CODE_KEYWORDS = re.compile(
+    r"\b(programming|coding|code|developer|engineer|software|script|api|database|"
+    r"python|javascript|typescript|java\b|c\+\+|ruby|golang|rust|swift|kotlin|"
+    r"html|css|react|angular|vue|node|django|flask|fastapi|spring|rails|"
+    r"algorithm|function|variable|class\b|method|loop|array|object|json|yaml|"
+    r"git|docker|kubernetes|aws|azure|gcp|linux|terminal|command.?line|cli|"
+    r"debug|compile|runtime|frontend|backend|fullstack|devops|testing|ci/?cd|"
+    r"machine.?learning|data.?science|neural|model|train|predict|deploy|"
+    r"framework|library|package|module|dependency|npm|pip|maven|gradle)",
+    re.IGNORECASE,
+)
+
+_NON_CODE_KEYWORDS = re.compile(
+    r"\b(cooking|recipe|bake|fry|roast|grill|sauté|simmer|seasoning|ingredient|"
+    r"meal|dish|cuisine|kitchen|chef|food|eat|nutrition|diet|fitness|"
+    r"yoga|meditation|mindfulness|mental.?health|self.?care|wellness|"
+    r"relationship|dating|marriage|communication|parenting|family|"
+    r"finance|budget|invest|saving|retire|debt|stock|crypto|"
+    r"marketing|seo|social.?media|brand|sales|startup|business|entrepreneur|"
+    r"write|writing|novel|poetry|grammar|language|spanish|french|english|"
+    r"history|philosophy|psychology|science|biology|chemistry|physics|"
+    r"garden|plant|grow|soil|harvest|compost|flower|tree|"
+    r"travel|adventure|explore|hiking|camping|backpack|"
+    r"art|paint|draw|sketch|design|photograph|music|guitar|piano|sing|"
+    r"diy|craft|woodwork|sew|knit|crochet|"
+    r"cookbook|self-help|guide|how.?to|beginner|intermediate|advanced|"
+    r"ironclad|muscle|fat|weight|gym|workout|exercise|cardio|strength|"
+    r"protein|calorie|supplement|testosterone|hormone|sleep|energy|stamina)",
+    re.IGNORECASE,
+)
+
+
+def is_code_related(content: str) -> bool:
+    """Return True if the user content is primarily about programming/coding."""
+    text = content.lower()
+    code_hits = len(_CODE_KEYWORDS.findall(text))
+    non_code_hits = len(_NON_CODE_KEYWORDS.findall(text))
+    # If topic explicitly mentions non-code subjects, treat as non-code
+    if non_code_hits > code_hits:
+        return False
+    # If no code keywords found at all, treat as non-code
+    if code_hits == 0:
+        return False
+    return True
+
 EBOOK_SYSTEM_PROMPT = """You are a talented writer creating a technical ebook that people actually WANT to read. Think of yourself as that friend who explains stuff over coffee — casual, clear, and genuinely excited about the topic. You're turning someone's rough notes into something that feels effortless to read.
 
 Your voice:
@@ -49,7 +100,7 @@ Structure (6-10 sections):
 ## [Next section]
 [Build on the last one. Like a conversation.]
 
-## [Code section]
+## [Code section] (ONLY for programming/coding topics)
 [Show code, then explain it like you're pair-programming]
 
 ... keep going until you've covered everything ...
@@ -62,7 +113,8 @@ Hard rules:
 - Each section: 2-4 sentences + optional code or diagram
 - Draw diagrams as ```mermaid fenced blocks (flowchart LR/TD, graph LR/TD, sequenceDiagram). NEVER use ASCII art or text boxes.
 - Every section mentioning flow, architecture, or process MUST have a mermaid diagram
-- Use ```language blocks for code (```python, ```javascript, etc)
+- For programming/coding topics: Use ```language blocks for code (```python, ```javascript, etc)
+- For non-programming topics (business, health, cooking, self-help, fitness, relationships, finance): DO NOT include code blocks
 - Tables go in native markdown, not code fences
 - No ~~strikethrough~~ or raw HTML
 - Target: 4000-6000 words spread across many short sections
@@ -147,10 +199,15 @@ DIAGRAM RULES (critical — these must look GOOD):
 - Labels should be SHORT (2-4 words). Nobody reads paragraph-length node labels.
 - Always include a caption that explains what the diagram shows
 
+CODE RULES (critical — only include code for programming/coding topics):
+- ONLY use code blocks if the topic is about programming, coding, software development, or technical implementation
+- For non-programming topics (business, health, cooking, self-help, fitness, relationships, finance, etc.) — DO NOT include any code blocks
+- When code is appropriate, build from simple to complex
+- Explain WHAT the code does and WHY it matters
+
 OTHER RULES:
 - 6-10 sections; adjust density for the target page count
 - Vary block types — don't just do paragraphs. Mix in callouts, lists, tables, quotes.
-- Code builds from simple to complex
 - End with a "Key Takeaways" section using callout(takeaway) + list
 - Total content should fill roughly <<TARGET_PAGES>> pages"""
 
@@ -279,10 +336,13 @@ def generate_book_structure(content: str, template_id: str, target_pages: int) -
     except Exception:
         parsed = None
     if isinstance(parsed, dict) and isinstance(parsed.get("sections"), list):
-        return _sanitize_book(parsed, template_id, target_pages)
+        return _sanitize_book(parsed, template_id, target_pages, content)
     # fallback: legacy markdown -> structured blocks
     markdown = call_gemini(content, template_id, max_retries=3)
     blocks, title = bookmod.markdown_to_blocks(markdown)
+    # Filter code blocks for non-programming topics
+    if not is_code_related(content):
+        blocks = [b for b in blocks if b.get("type") != "code"]
     return {
         "title": title or "Ebook",
         "subtitle": f"A visual, story-driven learning guide ({template_id})",
@@ -294,9 +354,11 @@ def generate_book_structure(content: str, template_id: str, target_pages: int) -
     }
 
 
-def _sanitize_book(book: dict, template_id: str, target_pages: int) -> dict:
-    """Validate/repair a Gemini-returned book into the canonical shape."""
+def _sanitize_book(book: dict, template_id: str, target_pages: int, content: str = "") -> dict:
+    """Validate/repair a Gemini-returned book into the canonical shape.
+    Strips code blocks if the topic is not programming-related."""
     sections = []
+    allow_code = is_code_related(content) if content else True
     for i, sec in enumerate(book.get("sections", []), start=1):
         blocks = []
         for b in sec.get("blocks", []):
@@ -308,7 +370,8 @@ def _sanitize_book(book: dict, template_id: str, target_pages: int) -> dict:
                 if b.get("text"):
                     blocks.append(bookmod.subheading(b["text"]))
             elif kind == "code":
-                blocks.append(bookmod.code_block(b.get("lang", "text"), b.get("code", "")))
+                if allow_code:
+                    blocks.append(bookmod.code_block(b.get("lang", "text"), b.get("code", "")))
             elif kind == "diagram":
                 spec = b.get("spec", "")
                 if "mermaid" in spec.lower():
@@ -413,7 +476,7 @@ def download_pdf(request: DownloadRequest):
             template = _load_template(request.template_id)
             entries = bookmod.book_entries(request.book)
             document = bookmod.render_book_document(request.book, template, page_map=None)
-            pdf_path = compile_document_to_pdf(document, entries)
+            pdf_path = compile_document_to_pdf(document, entries, template=template)
             return FileResponse(
                 pdf_path,
                 media_type="application/pdf",

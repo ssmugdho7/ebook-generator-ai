@@ -11,6 +11,36 @@ import re
 import book as bookmod
 
 
+# ---------------------------------------------------------------------------
+# Topic detection — skip code blocks for non-programming topics
+# ---------------------------------------------------------------------------
+
+_CODE_KEYWORDS = re.compile(
+    r"\b(programming|coding|code|developer|engineer|software|script|api|database|"
+    r"python|javascript|typescript|java\b|c\+\+|ruby|golang|rust|swift|kotlin|"
+    r"html|css|react|angular|vue|node|django|flask|fastapi|spring|rails|"
+    r"algorithm|function|variable|class\b|method|loop|array|object|json|yaml|"
+    r"git|docker|kubernetes|aws|azure|gcp|linux|terminal|command.?line|cli|"
+    r"debug|compile|runtime|frontend|backend|fullstack|devops|testing|ci/?cd|"
+    r"machine.?learning|data.?science|neural|model|train|predict|deploy|"
+    r"framework|library|package|module|dependency|npm|pip|maven|gradle)",
+    re.IGNORECASE,
+)
+
+
+def _is_code_topic(book: dict) -> bool:
+    """Check if the book is about programming/coding or already contains code."""
+    text = f"{book.get('title', '')} {book.get('subtitle', '')}".lower()
+    if _CODE_KEYWORDS.search(text):
+        return True
+    # Also allow code if the book already contains code blocks
+    for sec in book.get("sections", []):
+        for b in sec.get("blocks", []):
+            if b.get("type") == "code":
+                return True
+    return False
+
+
 INTENT_HEADING_SM = re.compile(r"(smaller|shrink|shorter|lower)\s+(the\s+)?(heading|title)|heading.*(smaller|shrink)|smaller.*(heading|title)|make\s+(the\s+)?(heading|title)\s+(smaller|shrink|shorter)|make\s+heading\s+smaller", re.I)
 INTENT_HEADING_LG = re.compile(r"(bigger|larger|big|largest|louder)\s+(the\s+)?(heading|title)|heading.*(bigger|larger)|make\s+(the\s+)?(heading|title)\s+(bigger|larger|big)|make\s+heading\s+bigger", re.I)
 INTENT_DIAGRAM = re.compile(r"add.*(diagram|figure|visual|chart|mermaid)|(diagram|visual|chart).*(add|include|needs?|want)", re.I)
@@ -69,6 +99,7 @@ def apply_comment(book: dict, comment: str) -> dict:
     book = dict(book)
     sections = [dict(s) for s in bookmod.book_sections(book)]
     book["sections"] = sections
+    allow_code = _is_code_topic(book)
 
     targets, where = _target_sections(book, comment)
     notes = [f"Targeted {where}"]
@@ -79,7 +110,7 @@ def apply_comment(book: dict, comment: str) -> dict:
         sec = sections[idx]
         before_blocks = [b.get("text", b.get("code", "")) for b in sec["blocks"]]
         before_scale = sec.get("title_scale")
-        did = _apply_to_section(sec, c, idx)
+        did = _apply_to_section(sec, c, idx, allow_code=allow_code)
         after_blocks = [b.get("text", b.get("code", "")) for b in sec["blocks"]]
         after_scale = sec.get("title_scale")
         if did and (before_blocks != after_blocks or before_scale != after_scale):
@@ -92,7 +123,7 @@ def apply_comment(book: dict, comment: str) -> dict:
     return {"book": book, "changed_sections": changed, "notes": notes}
 
 
-def _apply_to_section(sec: dict, comment: str, idx: int) -> bool:
+def _apply_to_section(sec: dict, comment: str, idx: int, allow_code: bool = True) -> bool:
     did = False
     blocks = sec.get("blocks", [])
 
@@ -113,7 +144,7 @@ def _apply_to_section(sec: dict, comment: str, idx: int) -> bool:
         sec["blocks"] = blocks
         did = True
 
-    if INTENT_CODE.search(comment):
+    if INTENT_CODE.search(comment) and allow_code:
         blocks.append(_code_for_section(sec))
         sec["blocks"] = blocks
         did = True

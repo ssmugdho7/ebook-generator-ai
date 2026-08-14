@@ -341,7 +341,7 @@ export default function Home() {
         <CoverGenerator
           title={book.title}
           subtitle={book.subtitle}
-          templateId={book.template_id}
+          template={templates.find((t) => t.id === book.template_id) ?? null}
           onClose={() => setShowCoverModal(false)}
         />
       )}

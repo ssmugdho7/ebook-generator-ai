@@ -148,42 +148,107 @@ def _inline(text: str) -> str:
     return text
 
 
-def _fallback_svg(spec: str, accent: str = "#3b82f6", text_color: str = "#1e293b") -> str:
+def _estimate_text_width(text: str, font_size: float = 13.0) -> float:
+    """Rough width of a bold sans-serif label (no canvas in the preview)."""
+    return len(text) * 0.55 * font_size
+
+
+def _wrap_label(text: str, max_width: float, font_size: float = 13.0) -> list:
+    """Wrap a label into lines that each fit within `max_width`."""
+    lines, cur = [], ""
+    for word in text.split(" "):
+        if _estimate_text_width(word, font_size) > max_width:
+            if cur:
+                lines.append(cur)
+            lines.extend(_hard_break_word(word, max_width, font_size))
+            cur = ""
+            continue
+        candidate = f"{cur} {word}" if cur else word
+        if cur and _estimate_text_width(candidate, font_size) > max_width:
+            lines.append(cur)
+            cur = word
+        else:
+            cur = candidate
+    if cur:
+        lines.append(cur)
+    return lines or [""]
+
+
+def _hard_break_word(word: str, max_width: float, font_size: float = 13.0) -> list:
+    """Break a single word longer than `max_width` into fitting chunks."""
+    pieces, cur = [], ""
+    for ch in word:
+        if cur and _estimate_text_width(cur + ch, font_size) > max_width:
+            pieces.append(cur)
+            cur = ch
+        else:
+            cur += ch
+    if cur:
+        pieces.append(cur)
+    return pieces or [word]
+
+
+def _fallback_svg(
+    spec: str,
+    accent: str = "#3b82f6",
+    text_color: str = "#1e293b",
+    box_fill: str = "#eef2f7",
+) -> str:
     """Deterministic box-and-arrow SVG (mirrors the browser fallback used in the
-    PDF renderer) so the live preview shows a real diagram, not raw source."""
+    PDF renderer) so the live preview shows a real diagram, not raw source.
+    Boxes auto-size to their text and long labels wrap instead of clipping."""
+    from pipeline import _ensure_contrast
+
+    text_color = _ensure_contrast(text_color, box_fill)
     labels = []
     for m in re.finditer(r"[A-Za-z0-9_-]+[\[({]([^\])\}]*)[\])\}]", spec):
-        label = re.sub(r'[{}[\]()"|`<>]', " ", m.group(1))
-        label = re.sub(r"\s+", " ", label).strip()[:40]
+        label = re.sub(r"<br\s*/?>", " ", m.group(1), flags=re.I)
+        label = re.sub(r"<[^>]*>", " ", label)
+        label = re.sub(r'[{}[\]()"|`<>]', " ", label)
+        label = re.sub(r"\s+", " ", label).strip()[:120]
         if label and label not in labels:
             labels.append(label)
     while len(labels) < 2:
         labels.append(["Core Concept", "Implementation", "Key Takeaways"][len(labels)])
     labels = labels[:4]
 
-    nw, gap, h, pad = 150, 40, 60, 20
-    w = len(labels) * nw + (len(labels) - 1) * gap + pad * 2
-    H = h + pad * 2
-    mid = pad + h / 2
+    char_w = 7.2
+    max_w, min_w, gap = 200.0, 150.0, 40
+    line_h, top_pad, bot_pad, pad_x, pad_y = 18, 18, 18, 20, 20
+    rows = []
+    for lab in labels:
+        lines = _wrap_label(lab, max_w - 24)
+        widest = max(len(ln) for ln in lines) * char_w
+        w = min(max_w, max(min_w, widest + 24))
+        h = len(lines) * line_h + top_pad + bot_pad
+        rows.append((lines, w, h))
+    total_w = sum(r[1] for r in rows) + (len(rows) - 1) * gap + pad_x * 2
+    H = max(r[2] for r in rows) + pad_y * 2
+    mid = H / 2
     svg = (
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{H}" '
-        f'viewBox="0 0 {w} {H}" font-family="sans-serif" class="fallback-diagram">'
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{total_w}" height="{H}" '
+        f'viewBox="0 0 {total_w} {H}" font-family="sans-serif" class="fallback-diagram">'
     )
-    for i, lab in enumerate(labels):
-        x = pad + i * (nw + gap)
+    x = pad_x
+    for i, (lines, w, h) in enumerate(rows):
+        y = mid - h / 2
         svg += (
-            f'<rect x="{x}" y="{pad}" width="{nw}" height="{h}" rx="8" '
-            f'fill="#eef2f7" stroke="{accent}" stroke-width="2"/>'
-            f'<text x="{x + nw / 2}" y="{mid}" text-anchor="middle" '
-            f'dominant-baseline="middle" font-size="13" fill="{text_color}">'
-            f"{html_lib.escape(lab)}</text>"
+            f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="8" '
+            f'fill="{box_fill}" stroke="{accent}" stroke-width="2"/>'
         )
-        if i > 0:
-            px = pad + (i - 1) * (nw + gap) + nw
+        for j, ln in enumerate(lines):
             svg += (
-                f'<line x1="{px}" y1="{mid}" x2="{px + gap}" y2="{mid}" '
+                f'<text x="{x + w / 2}" y="{y + top_pad + line_h * (j + 0.5)}" '
+                f'text-anchor="middle" dominant-baseline="middle" font-size="13" '
+                f'font-weight="600" fill="{text_color}">'
+                f"{html_lib.escape(ln)}</text>"
+            )
+        if i > 0:
+            svg += (
+                f'<line x1="{x - gap + 4}" y1="{mid}" x2="{x - 4}" y2="{mid}" '
                 f'stroke="{accent}" stroke-width="2" marker-end="url(#arr)"/>'
             )
+        x += w + gap
     svg += '<defs><marker id="arr" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="%s"/></marker></defs></svg>' % accent
     return svg
 
@@ -313,10 +378,11 @@ def render_book_preview_html(book: dict, template: dict) -> str:
     # swap mermaid source for a real (fallback) SVG so the preview shows a diagram
     accent = template["diagram"].get("box_stroke", "#3b82f6")
     text_color = template["diagram"].get("text", "#1e293b")
+    box_fill = template["diagram"].get("box_fill", "#eef2f7")
 
     def _svg_repl(m):
         spec = html_lib.unescape(re.sub(r"<[^>]+>", "", m.group(1)))
-        return _fallback_svg(spec, accent, text_color)
+        return _fallback_svg(spec, accent, text_color, box_fill)
 
     body = re.sub(
         r'<pre class="mermaid"[^>]*>(.*?)</pre>',
@@ -353,7 +419,7 @@ body {{ padding: 24px; background: {template['palette']['page_bg']}; }}
 
 def count_pages(book: dict, template: dict) -> int:
     doc = render_book_document(book, template, page_map=None)
-    return pipeline.count_document_pages(doc)
+    return pipeline.count_document_pages(doc, template=template)
 
 
 def _trim_paragraph(block: dict) -> bool:

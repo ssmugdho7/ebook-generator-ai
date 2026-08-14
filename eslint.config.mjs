@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Generated artifacts:
+    "scripts/.cover-bundle.js",
+    "scripts/cover-previews/**",
+    "src/lib/generated-icons.ts",
   ]),
 ]);
 

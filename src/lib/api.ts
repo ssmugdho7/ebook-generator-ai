@@ -67,6 +67,12 @@ export interface TemplateInfo {
     heading: string;
     text: string;
     code_bg: string;
+    accent_soft?: string;
+    muted?: string;
+    block_bg?: string;
+    code_text?: string;
+    code_line?: string;
+    title_page_bg?: string;
   };
 }
 

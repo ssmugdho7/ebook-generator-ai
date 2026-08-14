@@ -229,6 +229,12 @@ def list_templates() -> list:
                     "heading": pal["heading"],
                     "text": pal["text"],
                     "code_bg": pal["code_bg"],
+                    "accent_soft": pal.get("accent_soft"),
+                    "muted": pal.get("muted"),
+                    "block_bg": pal.get("block_bg"),
+                    "code_text": pal.get("code_text"),
+                    "code_line": pal.get("code_line"),
+                    "title_page_bg": pal.get("title_page_bg"),
                 },
             }
         )
@@ -272,6 +278,40 @@ def verify_template_code_contrast(template: dict) -> List[str]:
         color = hex_to_6(template["code"]["tokens"].get(name, ""))
         if color and _wcag_contrast(color, bg) < 4.5:
             failures.append(f"{name} ({color})")
+    return failures
+
+
+def verify_template_text_contrast(template: dict) -> List[str]:
+    """Return human-readable failures for every text/background pairing the
+    stylesheet creates (body, headings, muted, accent-as-text, table headers,
+    callouts, blockquotes, diagrams). Enforces WCAG AA (4.5:1)."""
+    from pipeline import _wcag_contrast, _header_colors, _ensure_contrast
+
+    p = template["palette"]
+    d = template["diagram"]
+    failures = []
+
+    def check(fg, bg, label):
+        if _wcag_contrast(fg, bg) < 4.5:
+            failures.append(f"{label}: {fg} on {bg}")
+
+    check(p["text"], p["page_bg"], "body text")
+    check(p["heading"], p["page_bg"], "headings")
+    check(p["muted"], p["page_bg"], "muted text")
+    check(p["muted"], p["block_bg"], "muted in blockquote")
+    check(p["text"], p["block_bg"], "even table rows / code chips")
+    check(p["heading"], p["block_bg"], "inline code chips")
+    check(_ensure_contrast(p["accent"], p["page_bg"]), p["page_bg"], "accent-as-text")
+
+    th_bg, th_fg = _header_colors(p["accent"])
+    check(th_fg, th_bg, "table header")
+
+    for kind, spec in template["callouts"].items():
+        check(p["text"], spec.get("bg", p["accent_soft"]), f"callout {kind} text")
+
+    check(p["heading"], p["accent_soft"], "takeaway heading")
+    check(d["text"], d["box_fill"], "diagram text on box")
+    check(d["text"], d["sub_bg"], "diagram text on sub-box")
     return failures
 
 
