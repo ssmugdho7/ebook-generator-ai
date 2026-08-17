@@ -1,0 +1,68 @@
+# Render Blueprint — deploys the whole app (frontend + backend) in one go.
+#
+# How to use:
+#   1. Create your Neon database first and copy its connection string.
+#   2. Render Dashboard -> New -> Blueprint -> pick this repo.
+#   3. Render reads this file and asks you for the two secret values below
+#      (GEMINI_API_KEYS and DATABASE_URL). Paste them and click Apply.
+#
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  # ---------------------------------------------------------------------------
+  # Backend: FastAPI + Playwright/Chromium (PDF rendering) + Neon Postgres
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: ebook-api
+    runtime: docker
+    plan: free # PDF rendering is memory-hungry; upgrade to `starter` if you see exit code 137 (OOM)
+    region: oregon # keep this in the SAME region as your Neon project
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    envVars:
+      # --- secrets: Render prompts for these on first apply (never committed) ---
+      - key: GEMINI_API_KEYS # comma-separated Gemini keys -> automatic rotation
+        sync: false
+      - key: DATABASE_URL # Neon connection string (use the -pooler host)
+        sync: false
+
+      # --- wiring / tuning ---
+      - key: ALLOWED_ORIGINS # lock CORS to the frontend service automatically
+        fromService:
+          name: ebook-web
+          type: web
+          property: host
+      - key: PAGE_VERIFY
+        value: "false" # false = fast page estimate (recommended on free/small plans)
+      - key: PDF_OUTPUT_DIR
+        value: /tmp/ebook-writer
+      - key: DB_POOL_MAX
+        value: "5"
+
+  # ---------------------------------------------------------------------------
+  # Frontend: Next.js 16 (App Router)
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: ebook-web
+    runtime: node
+    plan: free
+    region: oregon
+    rootDir: .
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    healthCheckPath: /
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: "22.12.0"
+      # NEXT_PUBLIC_* values are baked in at build time. Pointing at the API
+      # service's host means you never have to copy/paste a URL; the frontend
+      # adds https:// automatically when the scheme is missing.
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          name: ebook-api
+          type: web
+          property: host

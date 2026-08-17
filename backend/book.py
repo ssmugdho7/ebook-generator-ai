@@ -8,6 +8,8 @@ This is the heart of the "generate an outline, then edit it" flow:
 """
 
 import html as html_lib
+import math
+import os
 import re
 
 import pipeline
@@ -358,7 +360,7 @@ def render_book_document(book: dict, template: dict, page_map: dict = None) -> s
 <body>
   <div class="cover">
     <h1 class="chapter-title">{_inline(title)}</h1>
-    <p class="cover-sub">{html_lib.escape(subtitle) if subtitle else "A Visual, Story-Driven Learning Guide"}</p>
+    <p class="cover-sub">{html_lib.escape(subtitle) if subtitle else "A story you can finish in one sitting"}</p>
   </div>
   <div class="toc">
     <h2>Table of Contents</h2>
@@ -417,7 +419,62 @@ body {{ padding: 24px; background: {template['palette']['page_bg']}; }}
 # ---------------------------------------------------------------------------
 
 
+def _page_verify_enabled() -> bool:
+    """Whether page counts are measured by really rendering the PDF.
+
+    Measuring is exact but costs a full Chromium render (a few seconds and
+    ~200MB RAM). On small instances you can set PAGE_VERIFY=false to use the
+    fast estimator below instead — generation stays well inside Render's
+    request window and memory limit.
+    """
+    return os.environ.get("PAGE_VERIFY", "true").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+
+
+def estimate_pages(book: dict) -> int:
+    """Approximate the page count from block heights (no browser needed).
+
+    Heights are in millimetres, tuned against the real A4 template layout
+    (259mm of usable height per page after margins). Used when PAGE_VERIFY is
+    off, so the app still reports a sensible number instead of guessing 0.
+    """
+    usable_mm = 259.0
+    total_mm = 0.0
+    for sec in book_sections(book):
+        total_mm += 16.0  # section heading + its top margin
+        for block in sec.get("blocks", []):
+            kind = block.get("type")
+            if kind == "paragraph":
+                lines = max(1, math.ceil(len(block.get("text", "")) / 95))
+                total_mm += lines * 4.9 + 2.5
+            elif kind == "subheading":
+                total_mm += 9.0
+            elif kind == "code":
+                lines = len(block.get("code", "").splitlines()) or 1
+                total_mm += lines * 3.6 + 14.0
+            elif kind == "diagram":
+                total_mm += 55.0
+            elif kind == "callout":
+                lines = max(1, math.ceil(len(block.get("text", "")) / 85))
+                total_mm += lines * 4.9 + 12.0
+            elif kind == "list":
+                total_mm += len(block.get("items", [])) * 6.0 + 5.0
+            elif kind == "table":
+                total_mm += (len(block.get("rows", [])) + 1) * 8.5 + 5.0
+            elif kind == "quote":
+                lines = max(1, math.ceil(len(block.get("text", "")) / 85))
+                total_mm += lines * 4.9 + 9.0
+    body_pages = max(1, math.ceil(total_mm / usable_mm))
+    return body_pages + 2  # cover + table of contents
+
+
 def count_pages(book: dict, template: dict) -> int:
+    if not _page_verify_enabled():
+        return estimate_pages(book)
     doc = render_book_document(book, template, page_map=None)
     return pipeline.count_document_pages(doc, template=template)
 
@@ -490,8 +547,9 @@ def adjust_to_page_target(book: dict, template: dict, target_pages: int) -> dict
         if changed_any:
             sec = book["sections"][0]
             sec.setdefault("blocks", []).append(
-                callout("tip", "Revisit this section and test each step yourself — "
-                               "hands-on practice cements the idea.")
+                callout("tip", "Read that last scene again, slowly, and picture it "
+                               "happening. The picture is what you will still "
+                               "remember next week — not the words.")
             )
 
     return book

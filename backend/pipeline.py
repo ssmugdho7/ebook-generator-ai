@@ -12,6 +12,7 @@ All themes, typography, syntax highlighting, and pagination are controlled in CS
 
 import os
 import re
+import tempfile
 import uuid
 from typing import Dict, List
 
@@ -27,6 +28,40 @@ from pygments.token import Token
 from pygments.util import ClassNotFound
 
 MERMAID_SRC = os.path.join(os.path.dirname(__file__), "assets", "mermaid.min.js")
+
+
+# ---------------------------------------------------------------------------
+# Runtime environment (local machine vs. container on Render)
+# ---------------------------------------------------------------------------
+
+# Chromium flags that make the headless browser survive inside a small
+# container: no sandbox (no user namespaces available), /tmp instead of the tiny
+# default /dev/shm, and no GPU probing.
+CHROMIUM_ARGS = [
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--disable-extensions",
+    "--no-first-run",
+    "--no-zygote",
+    "--font-render-hinting=none",
+]
+
+
+def pdf_workdir() -> str:
+    """Directory for intermediate/output PDFs.
+
+    Defaults to the system temp dir so nothing is ever written into the app
+    directory (Render's filesystem is ephemeral and should stay read-mostly);
+    override with PDF_OUTPUT_DIR if you mount a Render disk.
+    """
+    path = os.environ.get("PDF_OUTPUT_DIR") or os.path.join(
+        tempfile.gettempdir(), "ebook-writer"
+    )
+    os.makedirs(path, exist_ok=True)
+    return path
+
 
 # ---------------------------------------------------------------------------
 # Entities / guards
@@ -954,7 +989,7 @@ def build_document(
 <body>
   <div class="cover">
     <h1 class="chapter-title">{html_lib.escape(title)}</h1>
-    <p class="cover-sub">A Visual, Story-Driven Learning Guide &middot; {html_lib.escape(t['label'])}</p>
+    <p class="cover-sub">A story you can finish in one sitting &middot; {html_lib.escape(t['label'])}</p>
   </div>
   <div class="toc">
     <h2>Table of Contents</h2>
@@ -997,7 +1032,7 @@ async def render_pdf(
     colors_json = _json.dumps(fallback_colors)
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch()
+        browser = await p.chromium.launch(args=CHROMIUM_ARGS)
         try:
             page = await browser.new_page()
             await page.set_content(document, wait_until="load")
@@ -1435,7 +1470,7 @@ flag = True and (3.14 <= 7)
 
     async def _run():
         async with async_playwright() as p:
-            browser = await p.chromium.launch()
+            browser = await p.chromium.launch(args=CHROMIUM_ARGS)
             page = await browser.new_page()
             await page.set_content(document, wait_until="load")
             report = await page.evaluate(
@@ -1488,9 +1523,9 @@ def compile_document_to_pdf(document: str, entries, template: dict = None) -> st
     page-number verification. `template` (optional) drives mermaid diagram
     colors/fonts; when omitted a neutral default is used.
     """
-    assets = os.path.join(os.path.dirname(__file__), "assets")
-    pass_a = os.path.join(assets, f"ebook-{uuid.uuid4().hex[:8]}.pdf")
-    out_path = os.path.join(assets, f"ebook-{uuid.uuid4().hex[:8]}.pdf")
+    workdir = pdf_workdir()
+    pass_a = os.path.join(workdir, f"ebook-{uuid.uuid4().hex[:8]}.pdf")
+    out_path = os.path.join(workdir, f"ebook-{uuid.uuid4().hex[:8]}.pdf")
 
     # Pass A: render without page numbers to discover final pagination.
     _run_coro(render_pdf("", "Modern Tech Blog", pass_a, page_map=None, document=document, template=template))
@@ -1514,8 +1549,7 @@ def count_document_pages(document: str, template: dict = None) -> int:
     """Render a single pass and return the number of printed pages."""
     import fitz
 
-    assets = os.path.join(os.path.dirname(__file__), "assets")
-    tmp = os.path.join(assets, f"ebook-{uuid.uuid4().hex[:8]}.pdf")
+    tmp = os.path.join(pdf_workdir(), f"ebook-{uuid.uuid4().hex[:8]}.pdf")
     try:
         _run_coro(render_pdf("", "Modern Tech Blog", tmp, page_map=None, document=document, template=template))
         with fitz.open(tmp) as doc:

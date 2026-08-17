@@ -1,0 +1,19 @@
+# Keep the backend image small and reproducible.
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# generated PDFs / debug dumps — never part of the image
+assets/*.pdf
+assets/debug.html
+
+# local secrets
+.env
+.env.*
+!.env.example
+
+.DS_Store

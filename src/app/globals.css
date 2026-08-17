@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* The app switches themes by toggling `.dark` on <html> (see ThemeToggle), so
+   point Tailwind's `dark:` variant at that class instead of the OS setting. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #ffffff;
   --foreground: #1e293b;

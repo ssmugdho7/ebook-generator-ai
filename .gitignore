@@ -32,6 +32,9 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...but the templates must be committed so deploys are reproducible
+!.env.example
+!backend/.env.example
 
 # vercel
 .vercel

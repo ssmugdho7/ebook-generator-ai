@@ -2,35 +2,90 @@ import json
 import os
 import re
 import time
+from contextlib import asynccontextmanager
 from typing import Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from google import genai
 from google.genai import types
 from pydantic import BaseModel
 
 import book as bookmod
+import db
 import templates as templatesmod
 from key_manager import create_key_manager, RateLimitError
 from pipeline import compile_markdown_to_pdf, compile_document_to_pdf
 
 load_dotenv()
 
-app = FastAPI(title="AI Ebook Generator API")
 
-# Allow all origins in production, restrict in development
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Verify the Neon schema once at boot. A missing/unreachable database is
+    logged, never fatal — the app still generates ebooks, just without a
+    library."""
+    db.init_schema()
+    yield
+
+
+app = FastAPI(title="AI Ebook Generator API", lifespan=lifespan)
+
+
+def _allowed_origins() -> list:
+    """CORS origins from env. Default `*` keeps local dev and previews easy;
+    set ALLOWED_ORIGINS on Render to lock the API to your frontend URL(s).
+
+    Accepts bare hostnames too, because Render's `fromService: property: host`
+    hands over `ebook-web.onrender.com` without a scheme — we turn that into
+    `https://ebook-web.onrender.com` (and `http://` for localhost).
+
+    Example: ALLOWED_ORIGINS=https://ebook-web.onrender.com,https://myebooks.com
+    """
+    raw = os.environ.get("ALLOWED_ORIGINS", "*").strip()
+    if not raw or raw == "*":
+        return ["*"]
+    origins = []
+    for chunk in raw.split(","):
+        origin = chunk.strip().rstrip("/")
+        if not origin:
+            continue
+        if not origin.startswith(("http://", "https://")):
+            local = origin.startswith(("localhost", "127.0.0.1", "0.0.0.0"))
+            origin = ("http://" if local else "https://") + origin
+        origins.append(origin)
+    return origins or ["*"]
+
+
+_origins = _allowed_origins()
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_origins,
+    # credentials cannot be combined with the "*" wildcard per the CORS spec
+    allow_credentials=_origins != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 key_manager = create_key_manager()
+
+
+def _require_keys() -> None:
+    """Fail fast with an actionable message instead of an opaque 500 when the
+    deployment is missing its Gemini credentials."""
+    if not key_manager._keys:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "No Gemini API key configured. Set GEMINI_API_KEYS (comma-separated) "
+                "or GEMINI_API_KEY in the service environment, then redeploy. "
+                "Get keys at https://aistudio.google.com/apikey"
+            ),
+        )
+
 
 
 # ---------------------------------------------------------------------------
@@ -82,44 +137,117 @@ def is_code_related(content: str) -> bool:
         return False
     return True
 
-EBOOK_SYSTEM_PROMPT = """You are a talented writer creating a technical ebook that people actually WANT to read. Think of yourself as that friend who explains stuff over coffee — casual, clear, and genuinely excited about the topic. You're turning someone's rough notes into something that feels effortless to read.
+# ---------------------------------------------------------------------------
+# The storyteller voice — shared by every generation path
+# ---------------------------------------------------------------------------
+#
+# Both the markdown flow and the structured-book flow use this block, so the
+# ebook always reads the same way: a bedtime story that happens to teach.
+# It is deliberately prescriptive, because "write casually" is too vague for a
+# model — the rules below force a single mental model, fairy-tale beats, and
+# thriller pacing.
 
-Your voice:
-- Write like you talk. Use "you" and "I" and "we". Skip the jargon soup.
-- Be honest when something is tricky. Say "this part trips people up" instead of "this is a complex concept requiring careful consideration."
-- Use real-world analogies. Compare APIs to restaurants, databases to filing cabinets, threads to cooks in a kitchen.
-- Drop in personality. "Here's where it gets fun" or "Okay, this is the part that blew my mind."
-- Keep paragraphs short — 2-3 sentences max. Nobody reads walls of text.
-- When you show code, explain WHAT it does and WHY it matters, not just what each line does.
+STORY_VOICE = """YOU ARE A STORYTELLER FIRST, A TEACHER SECOND.
 
-Structure (6-10 sections):
-# [A title that makes you curious, not bored]
+Imagine a mother sitting on the edge of a bed, telling her child a story. Or a
+favourite teacher who closes the textbook and says: "Forget the definitions.
+Let me tell you what really happened." That is exactly how this whole book must
+sound. The reader should feel safe, curious, and unable to stop reading.
 
-## [Section title — keep it conversational]
-[2-3 sentences. Hook the reader. Why should they care?]
+1. ONE SIMPLE MENTAL MODEL FOR THE WHOLE BOOK
+- Before writing anything, pick ONE tiny everyday world that mirrors the topic:
+  a village bakery, a school lunch queue, a post office, a garden, a night
+  train, a small shop, a kitchen, a football team, a family of ants.
+- Introduce that world in the very first paragraph and NEVER swap it later.
+  Every idea in every section must be explained inside that same world.
+- Give it 2-3 named characters with wants (Mira the baker, Rafi the delivery
+  boy, Grandma who checks every loaf). Characters make abstract things stick.
+- Keep the model absurdly simple. If a 10-year-old could not picture it in one
+  breath, choose something simpler.
 
-## [Next section]
-[Build on the last one. Like a conversation.]
+2. FAIRY-TALE SHAPE
+- Open like a story, not a syllabus: "In a small town where nobody could wait,
+  there was a bakery with one oven..."
+- Follow the classic beats across the sections: a peaceful start -> a problem
+  that hurts someone -> a clumsy first attempt that fails -> the discovery -> a
+  twist that changes everything -> the calm, confident ending -> the moral.
+- Use fairy-tale rhythm words sparingly but deliberately: "And then...",
+  "But here is the strange part...", "Nobody expected what happened next."
 
-## [Code section] (ONLY for programming/coding topics)
-[Show code, then explain it like you're pair-programming]
+3. THRILLER PACING (this is what stops the book being boring)
+- Every section OPENS with tension: a question, a small disaster, a ticking
+  clock, a mystery. Stakes first, explanation second.
+- Every section CLOSES with a cliffhanger line that pulls the reader forward:
+  "The fix worked. For about four minutes." / "And that is when Rafi noticed
+  the second door." Never end a section on a flat summary.
+- Plant small secrets early and pay them off later. Reveal, do not lecture.
+- Short sentences. Then shorter. That is the heartbeat of suspense.
 
-... keep going until you've covered everything ...
+4. COMFORT (the reader must never feel stupid)
+- Say the hard part out loud, kindly: "This next bit sounds scary. It is not.
+  Stay with me — I will walk you through it slowly."
+- Give the reader tiny wins: "See? You already understand the hardest part."
+- Never shame, never assume prior knowledge, never dump jargon.
 
-## Key Takeaways
-[The "if you remember nothing else" list — 3-5 bullets]
+5. HOW TO HANDLE HARD WORDS AND FACTS
+- Show the thing in the story FIRST, name it SECOND:
+  "Mira writes the order on a slip and clips it to the wire. That slip is what
+  engineers call a request."
+- After naming a term, define it in one plain sentence a child could repeat.
+- Everything factual from the user's notes MUST still be there and correct. The
+  story is the wrapper, never an excuse to lose accuracy or detail.
+- No jargon soup, no corporate voice, no "it is important to note", no
+  "in this chapter we will discuss", no "delve", no "leverage", no "moreover".
 
-Hard rules:
-- Start with the heading directly. No "In this chapter we will discuss..."
-- Each section: 2-4 sentences + optional code or diagram
-- Draw diagrams as ```mermaid fenced blocks (flowchart LR/TD, graph LR/TD, sequenceDiagram). NEVER use ASCII art or text boxes.
-- Every section mentioning flow, architecture, or process MUST have a mermaid diagram
-- For programming/coding topics: Use ```language blocks for code (```python, ```javascript, etc)
-- For non-programming topics (business, health, cooking, self-help, fitness, relationships, finance): DO NOT include code blocks
-- Tables go in native markdown, not code fences
-- No ~~strikethrough~~ or raw HTML
-- Target: 4000-6000 words spread across many short sections
-- The reader should finish and think "that was actually enjoyable to read" """
+6. SENTENCE AND PARAGRAPH RULES
+- Everyday words only. Roughly a 6th-grade reading level.
+- Most sentences under 15 words. Paragraphs of 2-3 sentences, never more.
+- Speak directly to the reader as "you". Use "we" when walking side by side.
+- Concrete nouns and numbers beat abstractions: "three loaves", not "several
+  units of output"."""
+
+
+EBOOK_SYSTEM_PROMPT = (
+    STORY_VOICE
+    + """
+
+YOUR TASK
+Turn the user's rough notes into a story-shaped ebook in Markdown. Same facts,
+same depth — told as one continuous tale inside your chosen everyday world.
+
+SHAPE (6-10 sections)
+# [A title that sounds like a story, not a manual]
+
+## [Section 1 — the calm world and the trouble that arrives]
+[Open the story. Introduce the world and one character. End with a hook.]
+
+## [Section 2..N — one idea per section, each a scene in the same story]
+[Tension -> the scene -> the plain-language explanation -> tiny example ->
+cliffhanger into the next section.]
+
+## [Code scenes] (ONLY for programming/coding topics)
+[Show the code as "the note Mira pinned to the wall", then explain what it does
+and why it saves the day. Never a line-by-line robot walkthrough.]
+
+## The Moral of the Story
+[3-5 bullets: the "if you remember nothing else" list, in story words.]
+
+HARD RULES
+- Start with the heading directly. No preamble about the chapter.
+- Each section: 2-5 short paragraphs, plus an optional diagram or code block.
+- Diagrams go in ```mermaid fenced blocks (flowchart LR/TD, graph LR/TD,
+  sequenceDiagram). NEVER ASCII art or text boxes.
+- Any section about a flow, a journey, an order of events, or how pieces fit
+  together MUST include a mermaid diagram. Label nodes with story words
+  ("Order slip", "One oven", "Waiting queue"), 2-4 words each.
+- Programming/coding topics: use ```language code fences (```python, etc).
+- Non-programming topics (business, health, cooking, self-help, fitness,
+  relationships, finance, study): NO code blocks at all.
+- Tables in native markdown. No raw HTML, no ~~strikethrough~~.
+- Target 4000-6000 words across many short scenes.
+- Final test before you answer: would a tired reader keep turning pages, and
+  could they retell the whole idea as a story tomorrow? If not, rewrite."""
+)
 
 
 class GenerateRequest(BaseModel):
@@ -148,21 +276,29 @@ class DownloadRequest(BaseModel):
     theme: str = "Modern Tech Blog"
     book: Optional[dict] = None
     template_id: str = "minimal-light"
+    # when present, the compiled PDF is stored against this library row
+    ebook_id: Optional[str] = None
 
 
 GEMINI_MODEL = "gemini-3.6-flash"
 
 
-BOOK_SYSTEM_PROMPT = """You are a book outliner who writes like a human, not a machine. You're creating the skeleton of a visually-rich ebook that reads like a great conversation. Return ONLY a single valid JSON object matching this schema:
+BOOK_SYSTEM_PROMPT = (
+    STORY_VOICE
+    + """
+
+YOUR TASK
+Build the skeleton of a visually rich, story-shaped ebook. Return ONLY a single
+valid JSON object matching this schema (no markdown fence, no commentary):
 
 {
-  "title": "string (make it catchy — not 'Chapter 1: Introduction')",
-  "subtitle": "string (one line that hooks the reader)",
+  "title": "string (sounds like a story: 'The Bakery With One Oven')",
+  "subtitle": "string (one line that promises a story, not a lecture)",
   "sections": [
     {
-      "title": "string (conversational, not academic)",
+      "title": "string (a scene name, curious and short)",
       "blocks": [
-        {"type": "paragraph", "text": "string (2-3 sentences, write like you talk)"},
+        {"type": "paragraph", "text": "string (2-3 short story sentences)"},
         {"type": "subheading", "text": "string"},
         {"type": "code", "lang": "python", "code": "string"},
         {"type": "diagram", "spec": "valid mermaid source with colors and labels", "caption": "string"},
@@ -175,42 +311,67 @@ BOOK_SYSTEM_PROMPT = """You are a book outliner who writes like a human, not a m
   ]
 }
 
-YOUR VOICE:
-- Write like you're explaining to a friend, not writing a textbook.
-- Use "you", "we", "let's". Avoid "one should", "it is important to note".
-- Be opinionated. "This is the approach I'd pick" is better than "there are various approaches."
-- Analogies are your best tool. Every abstract concept gets a real-world comparison.
-- Short paragraphs. 2-3 sentences. Break things up.
-- When something is hard, say so. "Fair warning — this part takes practice."
+STORY ARC ACROSS SECTIONS (6-10 sections)
+1. "Once upon a normal day" — the little world, one character, and the trouble
+   that walks in. End on a hook.
+2-3. The clumsy first attempts. Show what breaks and who it hurts.
+4-6. The discovery: the real idea, explained inside the same world, step by
+   step, from simple to complete.
+7-8. The twist — the mistake almost everyone makes — and how our character
+   escapes it.
+9. The calm ending: the world works now, and the reader knows why.
+Last section: "The Moral of the Story" — a callout(takeaway) plus a list.
 
-DIAGRAM RULES (critical — these must look GOOD):
-- Every diagram block MUST use valid mermaid syntax: flowchart LR, flowchart TD, graph LR, graph TD, or sequenceDiagram
-- Use COLORS to show meaning. Example with styled nodes:
+RHYTHM INSIDE EVERY SECTION (follow this order)
+- paragraph: the tension. A question, a small disaster, a ticking clock.
+- paragraph: the story beat — what a character does, in the everyday world.
+- paragraph: the plain-language meaning, naming the real term at the end.
+- optional callout / diagram / code / table / list: the proof or picture.
+- paragraph: a one-line cliffhanger that makes the next section irresistible.
+
+CALLOUTS ARE STORY MOMENTS, USE THEM OFTEN (2-4 per section is good)
+- "example" -> "Picture this:" a tiny concrete scene with names and numbers.
+- "info"    -> "What this really means:" the plain definition of a term.
+- "tip"     -> the little secret that makes it easy.
+- "warn"    -> "The trap:" the mistake that bites people, told as a near-miss.
+- "takeaway"-> "The moral:" one sentence a reader can repeat from memory.
+
+DIAGRAM RULES (critical — these must look GOOD)
+- Every diagram MUST be valid mermaid: flowchart LR, flowchart TD, graph LR,
+  graph TD, or sequenceDiagram.
+- Label nodes with STORY words, 2-4 words max ("Order slip", "One oven",
+  "Angry queue"). Never paragraph-length labels. Never jargon-only labels.
+- Use colors to carry meaning, e.g.:
   flowchart LR
-    A["User Request"]:::input --> B["API Gateway"]:::process
-    B --> C{"Valid?"}:::decision
-    C -->|Yes| D["Database"]:::storage
-    C -->|No| E["Error Response"]:::error
+    A["Customer waits"]:::input --> B["Order slip"]:::process
+    B --> C{"Oven free?"}:::decision
+    C -->|Yes| D["Fresh bread"]:::storage
+    C -->|No| E["Angry queue"]:::error
     classDef input fill:#dbeafe,stroke:#2563eb,color:#1e3a5f
     classDef process fill:#d1fae5,stroke:#059669,color:#064e3b
     classDef decision fill:#fef3c7,stroke:#d97706,color:#78350f
     classDef storage fill:#ede9fe,stroke:#7c3aed,color:#3b0764
     classDef error fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
-- For sequence diagrams, use participant aliases and colored notes
-- Labels should be SHORT (2-4 words). Nobody reads paragraph-length node labels.
-- Always include a caption that explains what the diagram shows
+- Sequence diagrams: use participant aliases and colored notes.
+- Every diagram needs a caption that tells the reader what to notice.
 
-CODE RULES (critical — only include code for programming/coding topics):
-- ONLY use code blocks if the topic is about programming, coding, software development, or technical implementation
-- For non-programming topics (business, health, cooking, self-help, fitness, relationships, finance, etc.) — DO NOT include any code blocks
-- When code is appropriate, build from simple to complex
-- Explain WHAT the code does and WHY it matters
+CODE RULES (only for programming/coding topics)
+- ONLY include code blocks when the topic is programming, coding, software, or
+  technical implementation.
+- For non-programming topics (business, health, cooking, self-help, fitness,
+  relationships, finance, study) include NO code blocks at all.
+- When code appears, the paragraph before it must tell the story reason for it,
+  and the paragraph after it must say what changed in the story because of it.
+- Build from the simplest possible version to the real one.
 
-OTHER RULES:
-- 6-10 sections; adjust density for the target page count
-- Vary block types — don't just do paragraphs. Mix in callouts, lists, tables, quotes.
-- End with a "Key Takeaways" section using callout(takeaway) + list
-- Total content should fill roughly <<TARGET_PAGES>> pages"""
+OTHER RULES
+- 6-10 sections; adjust density for the target page count.
+- Vary block types. Never five paragraphs in a row.
+- Keep every fact from the user's notes. The story wraps the facts; it never
+  replaces them.
+- Total content should fill roughly <<TARGET_PAGES>> pages.
+- Return raw JSON only."""
+)
 
 
 def _is_retryable(error_msg: str) -> bool:
@@ -279,6 +440,7 @@ def call_gemini(content: str, theme: str, max_retries: int = 5) -> str:
 async def generate_ebook(request: GenerateRequest):
     if not request.content.strip():
         raise HTTPException(status_code=400, detail="Content cannot be empty")
+    _require_keys()
 
     try:
         markdown_text = call_gemini(request.content, request.theme)
@@ -325,13 +487,16 @@ def generate_book_structure(content: str, template_id: str, target_pages: int) -
     """Gemini produces a structured book; if JSON parsing fails, fall back to
     the markdown generator + block parser so generation never hard-fails."""
     user_text = (
-        f"Template: {template_id}\nTarget pages: {target_pages}\n\nContent:\n{content}"
+        f"Template: {template_id}\nTarget pages: {target_pages}\n\n"
+        "Tell this as one continuous story, inside a single everyday world, with "
+        "named characters, a cliffhanger at the end of every section, and every "
+        "hard word explained in plain language right after it appears.\n\n"
+        f"Notes to turn into the story:\n{content}"
     )
     raw = _call_gemini_parts(
         BOOK_SYSTEM_PROMPT.replace("<<TARGET_PAGES>>", str(target_pages)), user_text
     )
-    cleaned = raw.strip().strip("`")
-    cleaned = cleaned.removeprefix("json").strip()
+    cleaned = _strip_json_fence(raw)
     try:
         parsed = json.loads(cleaned)
     except Exception:
@@ -346,13 +511,33 @@ def generate_book_structure(content: str, template_id: str, target_pages: int) -
         blocks = [b for b in blocks if b.get("type") != "code"]
     return {
         "title": title or "Ebook",
-        "subtitle": f"A visual, story-driven learning guide ({template_id})",
+        "subtitle": STORY_SUBTITLE,
         "template_id": template_id,
         "target_pages": target_pages,
         "sections": [{"title": title or "Ebook", "blocks": blocks}]
         if blocks
         else [],
     }
+
+
+# Used whenever the model forgets a subtitle: still promises a story, never
+# reads like a course catalogue.
+STORY_SUBTITLE = "A story you can finish in one sitting — and still remember tomorrow"
+
+
+def _strip_json_fence(raw: str) -> str:
+    """Pull the JSON object out of a model reply that may be fenced or chatty."""
+    text = raw.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
+        text = re.sub(r"```\s*$", "", text).strip()
+    text = text.removeprefix("json").strip()
+    if not text.startswith("{"):
+        start, end = text.find("{"), text.rfind("}")
+        if start != -1 and end > start:
+            text = text[start : end + 1]
+    return text
+
 
 
 def _sanitize_book(book: dict, template_id: str, target_pages: int, content: str = "") -> dict:
@@ -389,13 +574,51 @@ def _sanitize_book(book: dict, template_id: str, target_pages: int, content: str
                 if b.get("text"):
                     blocks.append(bookmod.quote(b["text"]))
         sections.append({"title": sec.get("title") or f"Section {i}", "blocks": blocks})
+    sections = _ensure_story_ending(sections)
     return {
         "title": book.get("title") or "Ebook",
-        "subtitle": book.get("subtitle") or "A visual, story-driven learning guide",
+        "subtitle": book.get("subtitle") or STORY_SUBTITLE,
         "template_id": template_id,
         "target_pages": target_pages,
         "sections": sections,
     }
+
+
+def _ensure_story_ending(sections: list) -> list:
+    """Deterministic story guarantee: a story must land on a moral.
+
+    The prompt asks for a closing takeaway, but models forget. Rather than
+    trusting the prompt alone, we check the last section and, if it has no
+    takeaway callout, we promote its own closing sentence into one. Nothing is
+    invented — we reuse the book's own words.
+    """
+    if not sections:
+        return sections
+    has_takeaway = any(
+        b.get("type") == "callout" and b.get("kind") == "takeaway"
+        for sec in sections
+        for b in sec.get("blocks", [])
+    )
+    if has_takeaway:
+        return sections
+
+    last = sections[-1]
+    closing = ""
+    for block in reversed(last.get("blocks", [])):
+        if block.get("type") == "paragraph" and block.get("text"):
+            sentences = [s for s in re.split(r"(?<=[.!?])\s+", block["text"].strip()) if s]
+            closing = sentences[-1] if sentences else ""
+            break
+    if not closing:
+        closing = (
+            f"Remember the story of {last.get('title', 'this chapter')} — that picture "
+            "is the whole idea."
+        )
+    last.setdefault("blocks", []).append(
+        bookmod.callout("takeaway", f"The moral of the story: {closing}")
+    )
+    return sections
+
 
 
 def _load_template(request_template_id: str) -> dict:
@@ -425,21 +648,43 @@ async def list_templates():
 
 @app.post("/api/generate-book")
 def generate_book(request: BookRequest):
-    """Generate a structured book outline and verify/adjust real page count."""
+    """Generate a structured book outline and verify/adjust real page count.
+
+    The finished outline is saved to Neon (when configured) so the reader can
+    come back to it later — Render's disk does not survive a redeploy.
+    """
     if not request.content.strip():
         raise HTTPException(status_code=400, detail="Content cannot be empty")
+    _require_keys()
     template = _load_template(request.template_id)
+    started = time.time()
     try:
         book = generate_book_structure(request.content, request.template_id, request.target_pages)
         book = bookmod.adjust_to_page_target(book, template, request.target_pages)
         pages = bookmod.count_pages(book, template)
+        ebook_id = db.save_ebook(
+            book=book,
+            template_id=request.template_id,
+            target_pages=request.target_pages,
+            page_count=pages,
+            source_content=request.content,
+        )
+        db.log_event(
+            "generate-book",
+            "ok",
+            ebook_id=ebook_id,
+            duration_ms=int((time.time() - started) * 1000),
+            detail=f"{len(book.get('sections', []))} sections / {pages} pages",
+        )
         return {
             "book": book,
             "page_count": pages,
             "target_pages": request.target_pages,
             "template_id": request.template_id,
+            "ebook_id": ebook_id,
         }
     except RateLimitError as e:
+        db.log_event("generate-book", "rate_limited", detail=str(e))
         raise HTTPException(status_code=429, detail=str(e))
     except HTTPException:
         raise
@@ -447,7 +692,9 @@ def generate_book(request: BookRequest):
         import traceback
 
         traceback.print_exc()
+        db.log_event("generate-book", "error", detail=str(e))
         raise HTTPException(status_code=500, detail=f"Book generation failed: {str(e)}")
+
 
 
 @app.post("/api/preview")
@@ -473,16 +720,22 @@ def download_pdf(request: DownloadRequest):
     # sync `def` so FastAPI runs this in a worker thread; compile is CPU-bound
     # (Playwright) and must not block the event loop for other requests.
     if request.book:
+        started = time.time()
         try:
             template = _load_template(request.template_id)
             entries = bookmod.book_entries(request.book)
             document = bookmod.render_book_document(request.book, template, page_map=None)
             pdf_path = compile_document_to_pdf(document, entries, template=template)
-            return FileResponse(
+            db.log_event(
+                "download-pdf",
+                "ok",
+                ebook_id=request.ebook_id,
+                duration_ms=int((time.time() - started) * 1000),
+            )
+            return _pdf_response(
                 pdf_path,
-                media_type="application/pdf",
-                filename="ebook.pdf",
-                headers={"Content-Disposition": 'attachment; filename="ebook.pdf"'},
+                filename=_pdf_filename(request.book.get("title")),
+                ebook_id=request.ebook_id,
             )
         except HTTPException:
             raise
@@ -490,6 +743,7 @@ def download_pdf(request: DownloadRequest):
             import traceback
 
             traceback.print_exc()
+            db.log_event("download-pdf", "error", ebook_id=request.ebook_id, detail=str(e))
             raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
 
     if not request.content or not request.content.strip():
@@ -497,12 +751,7 @@ def download_pdf(request: DownloadRequest):
 
     try:
         pdf_path = compile_markdown_to_pdf(request.content, request.theme)
-        return FileResponse(
-            pdf_path,
-            media_type="application/pdf",
-            filename="ebook.pdf",
-            headers={"Content-Disposition": 'attachment; filename="ebook.pdf"'},
-        )
+        return _pdf_response(pdf_path, filename="ebook.pdf", ebook_id=request.ebook_id)
     except Exception as e:
         import traceback
 
@@ -510,14 +759,113 @@ def download_pdf(request: DownloadRequest):
         raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
 
 
+def _pdf_filename(title: Optional[str]) -> str:
+    """`The Bakery With One Oven` -> `the-bakery-with-one-oven.pdf`."""
+    slug = re.sub(r"[^a-z0-9]+", "-", (title or "ebook").lower()).strip("-")
+    return f"{slug[:60] or 'ebook'}.pdf"
+
+
+def _pdf_response(pdf_path: str, filename: str, ebook_id: Optional[str]) -> Response:
+    """Stream the compiled PDF from memory, persist it to Neon, and delete the
+    temp file.
+
+    Reading the bytes (instead of `FileResponse`) matters on Render: the
+    container filesystem is ephemeral and read-only-ish per deploy, so the only
+    durable copy is the one in Postgres.
+    """
+    with open(pdf_path, "rb") as fh:
+        data = fh.read()
+    try:
+        os.remove(pdf_path)
+    except OSError:
+        pass
+    if ebook_id:
+        db.store_pdf(ebook_id, data)
+    return Response(
+        content=data,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(data)),
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Library (Neon-backed history)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/library")
+def library(limit: int = 12):
+    """Recent ebooks. Returns an empty list (never an error) when no database is
+    configured, so the UI degrades gracefully."""
+    return {
+        "items": db.list_ebooks(limit),
+        "database": db.is_configured(),
+    }
+
+
+@app.get("/api/library/{ebook_id}")
+def library_item(ebook_id: str):
+    entry = db.get_ebook(ebook_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Ebook not found")
+    return entry
+
+
+@app.get("/api/library/{ebook_id}/pdf")
+def library_pdf(ebook_id: str):
+    """Serve the stored PDF — no Gemini call, no Chromium render, instant."""
+    entry = db.get_ebook(ebook_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Ebook not found")
+    data = db.get_pdf(ebook_id)
+    if not data:
+        raise HTTPException(
+            status_code=404,
+            detail="No PDF stored for this ebook yet — open it and download once.",
+        )
+    return Response(
+        content=data,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{_pdf_filename(entry.get("title"))}"',
+            "Content-Length": str(len(data)),
+        },
+    )
+
+
+@app.delete("/api/library/{ebook_id}")
+def library_delete(ebook_id: str):
+    if not db.delete_ebook(ebook_id):
+        raise HTTPException(status_code=404, detail="Ebook not found")
+    return {"deleted": ebook_id}
+
+
 @app.get("/api/health")
 async def health_check():
+    """Deployment probe: Render pings this, and it tells you at a glance whether
+    keys and the database are wired up."""
     return {
         "status": "ok",
         "model": GEMINI_MODEL,
         "keys_available": len(key_manager._keys),
         "key_status": key_manager.status(),
+        "database": db.health(),
+        "page_verification": os.environ.get("PAGE_VERIFY", "true"),
+        "allowed_origins": _origins,
     }
+
+
+@app.get("/")
+async def root():
+    return {
+        "service": "AI Ebook Generator API",
+        "docs": "/docs",
+        "health": "/api/health",
+    }
+
 
 
 @app.get("/api/models")

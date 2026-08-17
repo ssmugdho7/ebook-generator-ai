@@ -16,6 +16,9 @@ const eslintConfig = defineConfig([
     "scripts/.cover-bundle.js",
     "scripts/cover-previews/**",
     "src/lib/generated-icons.ts",
+    // Python backend: its virtualenv ships bundled JS (Playwright's trace
+    // viewer) that would otherwise drown the report in thousands of findings.
+    "backend/**",
   ]),
 ]);
 

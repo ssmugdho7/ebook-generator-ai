@@ -1,4 +1,24 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+/**
+ * Backend base URL.
+ *
+ * `NEXT_PUBLIC_API_URL` is inlined at build time. On Render it can be wired
+ * straight from the API service (`fromService: property: host`), which yields a
+ * bare hostname like `ebook-api.onrender.com` — so we add the scheme ourselves
+ * and strip any trailing slash.
+ */
+function resolveApiBase(): string {
+  const raw = (process.env.NEXT_PUBLIC_API_URL || "").trim();
+  if (!raw) return "http://localhost:8000";
+  const isLocal = /^(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/i.test(raw);
+  const withScheme = /^https?:\/\//i.test(raw)
+    ? raw
+    : `${isLocal ? "http" : "https"}://${raw}`;
+  return withScheme.replace(/\/+$/, "");
+}
+
+const API_BASE = resolveApiBase();
+
+export { API_BASE };
 
 export async function generateEbook(
   content: string,
@@ -114,7 +134,12 @@ export async function generateBook(
   content: string,
   templateId: string,
   targetPages: number
-): Promise<{ book: Book; page_count: number; target_pages: number }> {
+): Promise<{
+  book: Book;
+  page_count: number;
+  target_pages: number;
+  ebook_id?: string | null;
+}> {
   return postJson("/api/generate-book", {
     content,
     template_id: templateId,
@@ -135,12 +160,17 @@ export async function getBookPreview(
 
 export async function downloadBookPdf(
   book: Book,
-  templateId: string
+  templateId: string,
+  ebookId?: string | null
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/api/download-pdf`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ book, template_id: templateId }),
+    body: JSON.stringify({
+      book,
+      template_id: templateId,
+      ebook_id: ebookId ?? null,
+    }),
   });
 
   if (!res.ok) {
@@ -148,11 +178,76 @@ export async function downloadBookPdf(
     throw new Error(err.detail || "Failed to download PDF");
   }
 
+  await saveBlobAsFile(res, fileNameFromTitle(book.title));
+}
+
+/* -------------------------------------------------------------------------- */
+/* Library (Neon-backed history)                                              */
+/* -------------------------------------------------------------------------- */
+
+export interface LibraryItem {
+  id: string;
+  title: string;
+  subtitle?: string | null;
+  template_id: string;
+  target_pages: number;
+  page_count: number | null;
+  section_count: number;
+  created_at: string | null;
+  has_pdf: boolean;
+  pdf_bytes: number | null;
+}
+
+export async function getLibrary(
+  limit = 12
+): Promise<{ items: LibraryItem[]; database: boolean }> {
+  const res = await fetch(`${API_BASE}/api/library?limit=${limit}`);
+  if (!res.ok) return { items: [], database: false };
+  return res.json();
+}
+
+export async function getLibraryBook(
+  id: string
+): Promise<{ id: string; book: Book; page_count: number | null }> {
+  const res = await fetch(`${API_BASE}/api/library/${id}`);
+  if (!res.ok) throw new Error("Could not open that ebook");
+  return res.json();
+}
+
+/** Instant download: the stored PDF is streamed from Postgres, no re-render. */
+export async function downloadStoredPdf(id: string, title: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/library/${id}/pdf`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "PDF not stored yet" }));
+    throw new Error(err.detail || "PDF not stored yet");
+  }
+  await saveBlobAsFile(res, fileNameFromTitle(title));
+}
+
+export async function deleteLibraryItem(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/library/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error("Could not delete that ebook");
+}
+
+/* -------------------------------------------------------------------------- */
+/* helpers                                                                    */
+/* -------------------------------------------------------------------------- */
+
+function fileNameFromTitle(title?: string): string {
+  const slug = (title || "ebook")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+  return `${slug || "ebook"}.pdf`;
+}
+
+async function saveBlobAsFile(res: Response, filename: string): Promise<void> {
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "ebook.pdf";
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
