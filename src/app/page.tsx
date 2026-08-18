@@ -8,16 +8,25 @@ import {
   generateBook,
   getBookPreview,
   downloadBookPdf,
+  translateBook,
   getLibrary,
   getLibraryBook,
   downloadStoredPdf,
   deleteLibraryItem,
   type TemplateInfo,
   type Book,
+  type TranslatedBook,
+  type EbookLanguage,
   type LibraryItem,
 } from "@/lib/api";
 
 const PAGE_COUNTS = [5, 10, 15, 20];
+
+const LANGUAGES: { id: EbookLanguage; label: string }[] = [
+  { id: "en", label: "English" },
+  { id: "bn", label: "বাংলা (Bengali)" },
+  { id: "both", label: "Both (English + Bengali)" },
+];
 
 const SAMPLE_CONTENT = `# React Hooks Deep Dive
 
@@ -38,6 +47,12 @@ export default function Home() {
   const [ebookId, setEbookId] = useState<string | null>(null);
   const [previewHtml, setPreviewHtml] = useState("");
   const [pageCount, setPageCount] = useState<number | null>(null);
+
+  // Language: which version(s) to produce, and which one is on screen.
+  const [language, setLanguage] = useState<EbookLanguage>("en");
+  const [bookBn, setBookBn] = useState<TranslatedBook | null>(null);
+  const [activeLang, setActiveLang] = useState<"en" | "bn">("en");
+  const [isTranslating, setIsTranslating] = useState(false);
 
   const [library, setLibrary] = useState<LibraryItem[]>([]);
   const [libraryEnabled, setLibraryEnabled] = useState(false);
@@ -82,6 +97,27 @@ export default function Home() {
 
   const selectedTemplate = templates.find((t) => t.id === templateId);
 
+  // Turn raw backend errors into something a reader can act on. Quota/rate-limit
+  // errors now get a calm, helpful message instead of a raw Google stack string.
+  const friendlyError = (e: unknown, fallback: string): string => {
+    const msg = e instanceof Error ? e.message : fallback;
+    if (
+      /429/.test(msg) ||
+      /quota/i.test(msg) ||
+      /resource_exhausted/i.test(msg) ||
+      /rate.?limit/i.test(msg)
+    ) {
+      return (
+        "You've hit Gemini's free-tier daily limit (20 requests/day per model). " +
+        "This is a Google quota, not a bug — generation works again after the " +
+        "daily reset (≈24h from your first request today). To continue now, add a " +
+        "paid Gemini key, or set GEMINI_MODEL_FALLBACKS to another model you have " +
+        "quota on."
+      );
+    }
+    return msg;
+  };
+
   const refreshPreview = useCallback(async (b: Book) => {
     try {
       const html = await getBookPreview(b, b.template_id);
@@ -96,37 +132,54 @@ export default function Home() {
     setIsGenerating(true);
     setError(null);
     setBook(null);
+    setBookBn(null);
     setEbookId(null);
     setPreviewHtml("");
     setPageCount(null);
+    setActiveLang(language === "bn" ? "bn" : "en");
     try {
-      const res = await generateBook(content, templateId, targetPages);
-      setBook(res.book);
+      const res = await generateBook(content, templateId, targetPages, language);
+      // The primary book is English unless the user asked for Bengali-only.
+      const primary = language === "bn" ? (res.book_bn ?? res.book) : res.book;
+      setBook(primary);
+      setBookBn(res.book_bn ?? null);
       setEbookId(res.ebook_id ?? null);
       setPageCount(res.page_count);
-      await refreshPreview(res.book);
+      await refreshPreview(primary);
       refreshLibrary();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Generation failed");
+      setError(friendlyError(e, "Generation failed"));
     } finally {
       setIsGenerating(false);
     }
-  }, [content, templateId, targetPages, refreshPreview, refreshLibrary]);
+  }, [content, templateId, targetPages, language, refreshPreview, refreshLibrary]);
 
   const handleDownload = useCallback(async () => {
     if (!book) return;
     setIsDownloading(true);
     setError(null);
     try {
-      await downloadBookPdf(book, book.template_id, ebookId);
+      // If a Bengali PDF is wanted but we don't have it yet, translate first.
+      if (activeLang === "bn" && !bookBn) {
+        setIsTranslating(true);
+        try {
+          const t = await translateBook(book, book.template_id, book.target_pages);
+          setBookBn(t.book);
+          await refreshPreview(t.book);
+        } finally {
+          setIsTranslating(false);
+        }
+      }
+      const source = activeLang === "bn" ? (bookBn ?? book) : book;
+      await downloadBookPdf(source, source.template_id, ebookId, activeLang);
       setShowCoverModal(true);
       refreshLibrary();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "PDF download failed");
+      setError(friendlyError(e, "PDF download failed"));
     } finally {
       setIsDownloading(false);
     }
-  }, [book, ebookId, refreshLibrary]);
+  }, [book, bookBn, activeLang, ebookId, refreshPreview, refreshLibrary]);
 
   const handleOpenLibraryItem = useCallback(
     async (item: LibraryItem) => {
@@ -135,12 +188,14 @@ export default function Home() {
       try {
         const entry = await getLibraryBook(item.id);
         setBook(entry.book);
+        setBookBn((entry as { book_bn?: TranslatedBook | null }).book_bn ?? null);
         setEbookId(entry.id);
         setPageCount(entry.page_count ?? null);
+        setActiveLang("en");
         setTemplateId(entry.book.template_id);
         await refreshPreview(entry.book);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Could not open that ebook");
+        setError(friendlyError(e, "Could not open that ebook"));
       } finally {
         setBusyItemId(null);
       }
@@ -176,6 +231,30 @@ export default function Home() {
   );
 
   const handleLoadSample = useCallback(() => setContent(SAMPLE_CONTENT), []);
+
+  const handleSwitchLang = useCallback(
+    async (lang: "en" | "bn") => {
+      if (lang === activeLang) return;
+      // Need a Bengali version on screen but don't have one yet? Translate now.
+      if (lang === "bn" && !bookBn && book) {
+        setIsTranslating(true);
+        setError(null);
+        try {
+          const t = await translateBook(book, book.template_id, book.target_pages);
+          setBookBn(t.book);
+        } catch (e) {
+          setError(friendlyError(e, "Translation failed"));
+          return;
+        } finally {
+          setIsTranslating(false);
+        }
+      }
+      setActiveLang(lang);
+      const source = lang === "bn" ? (bookBn ?? book) : book;
+      if (source) await refreshPreview(source);
+    },
+    [activeLang, bookBn, book, refreshPreview]
+  );
 
   const step = book ? 3 : 2;
 
@@ -259,6 +338,32 @@ export default function Home() {
                       }`}
                     >
                       {n} pages
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-card-border bg-card p-6 backdrop-blur-sm">
+                <h2 className="mb-3 text-lg font-semibold text-foreground">
+                  Language
+                </h2>
+                <p className="mb-3 text-xs text-text-muted">
+                  Write the story in English, Bengali (বাংলা), or both. Code and
+                  identifiers stay English; only the story is translated. For
+                  programming topics, code comments may be in Bengali.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {LANGUAGES.map((l) => (
+                    <button
+                      key={l.id}
+                      onClick={() => setLanguage(l.id)}
+                      className={`rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors ${
+                        language === l.id
+                          ? "border-accent/60 bg-accent/10 text-accent"
+                          : "border-card-border bg-background text-text-muted hover:border-accent/30 hover:text-foreground"
+                      }`}
+                    >
+                      {l.label}
                     </button>
                   ))}
                 </div>
@@ -442,12 +547,39 @@ export default function Home() {
                 </p>
               </div>
               <div className="flex gap-2">
+                {bookBn && (
+                  <div className="flex overflow-hidden rounded-xl border border-card-border">
+                    <button
+                      onClick={() => handleSwitchLang("en")}
+                      className={`px-3 py-2.5 text-sm font-medium transition-colors ${
+                        activeLang === "en"
+                          ? "bg-accent/15 text-accent"
+                          : "bg-background text-text-muted hover:text-foreground"
+                      }`}
+                    >
+                      English
+                    </button>
+                    <button
+                      onClick={() => handleSwitchLang("bn")}
+                      disabled={isTranslating}
+                      className={`px-3 py-2.5 text-sm font-medium transition-colors ${
+                        activeLang === "bn"
+                          ? "bg-accent/15 text-accent"
+                          : "bg-background text-text-muted hover:text-foreground"
+                      }`}
+                    >
+                      {isTranslating ? "Translating…" : "বাংলা"}
+                    </button>
+                  </div>
+                )}
                 <button
                   onClick={() => {
                     setBook(null);
+                    setBookBn(null);
                     setEbookId(null);
                     setPreviewHtml("");
                     setPageCount(null);
+                    setActiveLang("en");
                     setError(null);
                     refreshLibrary();
                   }}
@@ -462,14 +594,14 @@ export default function Home() {
                 >
                   {isDownloading ? (
                     <>
-                      <LoadingSpinner size="sm" /> Compiling PDF...
+                      <LoadingSpinner size="sm" /> Compiling PDF…
                     </>
                   ) : (
                     <>
                       <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
-                      Download PDF
+                      {activeLang === "bn" ? "Download Bengali PDF" : "Download PDF"}
                     </>
                   )}
                 </button>
@@ -514,7 +646,7 @@ export default function Home() {
       {showCoverModal && book && (
         <CoverGenerator
           title={book.title}
-          subtitle={book.subtitle}
+          subtitle={(activeLang === "bn" ? (bookBn?.subtitle ?? book.subtitle) : book.subtitle) || ""}
           template={templates.find((t) => t.id === book.template_id) ?? null}
           onClose={() => setShowCoverModal(false)}
         />

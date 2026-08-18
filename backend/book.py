@@ -12,6 +12,53 @@ import math
 import os
 import re
 
+# Bengali Unicode block (U+0980–U+09FF). Used to decide whether to embed the
+# Bengali font when rendering a book to PDF / preview HTML.
+_BENGALI_RE = re.compile(r"[\u0980-\u09FF]")
+
+
+def _needs_bengali_font(book: dict) -> bool:
+    """True if any visible text in the book uses Bengali script."""
+
+    def walk(blocks):
+        for b in blocks:
+            t = b.get("type")
+            if t in ("paragraph", "subheading", "quote"):
+                if _BENGALI_RE.search(b.get("text", "")):
+                    return True
+            elif t == "callout":
+                if _BENGALI_RE.search(b.get("text", "")):
+                    return True
+            elif t == "list":
+                for item in b.get("items", []):
+                    if _BENGALI_RE.search(str(item)):
+                        return True
+            elif t == "table":
+                for row in b.get("rows", []):
+                    for cell in row:
+                        if _BENGALI_RE.search(str(cell)):
+                            return True
+                for cell in b.get("header", []):
+                    if _BENGALI_RE.search(str(cell)):
+                        return True
+            elif t == "code":
+                # Code identifiers stay English; only Bengali comments count.
+                for line in (b.get("code", "") or "").splitlines():
+                    if "#" in line:
+                        comment = line.split("#", 1)[1]
+                        if _BENGALI_RE.search(comment):
+                            return True
+        return False
+
+    if _BENGALI_RE.search(book.get("title", "")) or _BENGALI_RE.search(book.get("subtitle", "")):
+        return True
+    for sec in book.get("sections", []):
+        if _BENGALI_RE.search(sec.get("title", "")):
+            return True
+        if walk(sec.get("blocks", [])):
+            return True
+    return False
+
 import pipeline
 
 
@@ -337,6 +384,7 @@ def render_book_document(book: dict, template: dict, page_map: dict = None) -> s
     title = book.get("title", "Ebook")
     subtitle = book.get("subtitle", "")
     body_html = render_sections(book_sections(book))
+    bengali = _needs_bengali_font(book)
 
     page_map = page_map or {}
     toc_items = []
@@ -348,13 +396,13 @@ def render_book_document(book: dict, template: dict, page_map: dict = None) -> s
         )
 
     return f"""<!DOCTYPE html>
-<html lang="en">
+<html lang="{'bn' if bengali else 'en'}">
 <head>
 <meta charset="utf-8">
 <title>{html_lib.escape(title)}</title>
 <style>
 {template_pygments_css(template)}
-{build_template_css(template)}
+{build_template_css(template, bengali=bengali)}
 </style>
 </head>
 <body>
@@ -393,8 +441,9 @@ def render_book_preview_html(book: dict, template: dict) -> str:
         flags=re.DOTALL,
     )
 
+    bengali = _needs_bengali_font(book)
     return f"""<!DOCTYPE html>
-<html lang="en">
+<html lang="{'bn' if bengali else 'en'}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -404,7 +453,7 @@ html, body {{ margin: 0; padding: 0; }}
 body {{ padding: 24px; background: {template['palette']['page_bg']}; }}
 .fallback-diagram {{ display: block; margin: 3mm auto; max-width: 100%; height: auto; }}
 {template_pygments_css(template)}
-{build_template_css(template)}
+{build_template_css(template, bengali=bengali)}
 </style>
 </head>
 <body>

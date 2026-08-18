@@ -2,6 +2,7 @@ import json
 import os
 import re
 import time
+import traceback
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -147,7 +148,36 @@ def is_code_related(content: str) -> bool:
 # model — the rules below force a single mental model, fairy-tale beats, and
 # thriller pacing.
 
+# Languages the ebook can be written in. "en" keeps the current behaviour;
+# "bn" writes the story in Bengali (code + identifiers stay English).
+LANG_NAMES = {
+    "en": "English",
+    "bn": "Bengali",
+}
+
+# A short, unmissable instruction injected at the very top of the system prompt
+# so the model cannot default to English. Keyed by language code.
+LANGUAGE_RULE = {
+    "en": "LANGUAGE: Write the ENTIRE book in English.",
+    "bn": (
+        "LANGUAGE: Write the ENTIRE book in BENGALI (বাংলা). This is the single "
+        "most important rule: the title, subtitle, every section heading, every "
+        "paragraph, every callout, every table, every caption, and the moral "
+        "MUST be in Bengali script. English is ONLY allowed inside code blocks "
+        "(identifiers, function names, library names, URLs, string literals) and "
+        "optionally inside code comments. If you write the story in English you "
+        "have failed the task. Start the title with a Bengali character."
+    ),
+}
+
+
+def _language_rule(lang: str) -> str:
+    return LANGUAGE_RULE.get(lang, LANGUAGE_RULE["en"])
+
+
 STORY_VOICE = """YOU ARE A STORYTELLER FIRST, A TEACHER SECOND.
+
+<<LANGUAGE_RULE>>
 
 Imagine a mother sitting on the edge of a bed, telling her child a story. Or a
 favourite teacher who closes the textbook and says: "Forget the definitions.
@@ -199,12 +229,21 @@ sound. The reader should feel safe, curious, and unable to stop reading.
 - No jargon soup, no corporate voice, no "it is important to note", no
   "in this chapter we will discuss", no "delve", no "leverage", no "moreover".
 
-6. SENTENCE AND PARAGRAPH RULES
-- Everyday words only. Roughly a 6th-grade reading level.
-- Most sentences under 15 words. Paragraphs of 2-3 sentences, never more.
-- Speak directly to the reader as "you". Use "we" when walking side by side.
-- Concrete nouns and numbers beat abstractions: "three loaves", not "several
-  units of output"."""
+ 6. SENTENCE AND PARAGRAPH RULES
+ - Everyday words only. Roughly a 6th-grade reading level.
+ - Most sentences under 15 words. Paragraphs of 2-3 sentences, never more.
+ - Speak directly to the reader as "you". Use "we" when walking side by side.
+ - Concrete nouns and numbers beat abstractions: "three loaves", not "several
+   units of output".
+
+ 7. LANGUAGE
+ - Write the whole book in <<LANGUAGE>>.
+ - Keep code identifiers, function names, library names, API names, URLs, and
+   string literals exactly as they are in English — never translate them.
+ - Code comments (the human notes inside a code block) MAY be written in
+   <<LANGUAGE>> when it helps the reader; the code itself stays English.
+ - Everything else — story, explanations, headings, tables, captions, the
+   moral — is in <<LANGUAGE>>."""
 
 
 EBOOK_SYSTEM_PROMPT = (
@@ -264,11 +303,20 @@ class BookRequest(BaseModel):
     content: str
     template_id: str = "minimal-light"
     target_pages: int = 12
+    # "en" only, "bn" only, or "both" (returns an extra book_bn).
+    language: str = "en"
 
 
 class PreviewRequest(BaseModel):
     book: dict
     template_id: str = "minimal-light"
+
+
+class TranslateRequest(BaseModel):
+    book: dict
+    template_id: str = "minimal-light"
+    target_pages: int = 12
+    language: str = "bn"
 
 
 class DownloadRequest(BaseModel):
@@ -278,9 +326,29 @@ class DownloadRequest(BaseModel):
     template_id: str = "minimal-light"
     # when present, the compiled PDF is stored against this library row
     ebook_id: Optional[str] = None
+    # "en" or "bn" — selects which book payload to render (only for `book`)
+    language: str = "en"
 
 
 GEMINI_MODEL = "gemini-3.6-flash"
+
+TRANSLATE_SYSTEM_PROMPT = """You are a careful translator for a story-style ebook.
+
+Translate the given structured book from English into {lang}. Keep the EXACT
+same JSON structure (same keys, same number of sections and blocks).
+
+RULES
+- Keep ALL code identifiers, function names, library names, API names, URLs,
+  and string literals in English — never translate them.
+- Code comments (the human notes inside a code block) MAY be written in {lang}
+  when it helps the reader; the code itself stays English.
+- Translate everything else: title, subtitle, all prose, headings, callouts,
+  list items, table text, captions, quotes, the moral.
+- Preserve the story voice, the fairy-tale shape, and the thriller pacing.
+- Do NOT change facts, numbers, or the meaning.
+- Keep mermaid diagram source EXACTLY as-is (node ids, labels may be translated
+  only if they are plain words, never the syntax).
+- Return ONLY the translated JSON object, no markdown fence, no commentary."""
 
 
 BOOK_SYSTEM_PROMPT = (
@@ -388,20 +456,87 @@ def _is_retryable(error_msg: str) -> bool:
     )
 
 
-def call_gemini(content: str, theme: str, max_retries: int = 5) -> str:
-    last_error = None
-    tried_keys = set()
+def _is_quota_error(error_msg: str) -> bool:
+    """A daily/account quota exhaust (RESOURCE_EXHAUSTED / quota), as opposed to a
+    transient per-minute rate limit. These won't clear by retrying the same model,
+    so we fall back to the next model instead."""
+    msg = error_msg.lower()
+    return "resource_exhausted" in msg or "quota" in msg
 
-    for attempt in range(max_retries):
-        try:
+
+_QUOTA_MESSAGE = (
+    "You've hit Gemini's free-tier daily limit (20 requests/day per model). "
+    "This is a Google quota, not a bug — generation will work again after the "
+    "daily reset (≈24h from your first request today). To continue now, add a "
+    "paid Gemini key, or set GEMINI_MODEL_FALLBACKS to another model you have "
+    "quota on. Your other settings are saved."
+)
+
+
+def _quota_error() -> HTTPException:
+    return HTTPException(status_code=429, detail=_QUOTA_MESSAGE)
+
+
+# Ordered model list: the primary model first, then any fallbacks from
+# GEMINI_MODEL_FALLBACKS. When the primary is out of quota, the next model is
+# tried automatically. Set GEMINI_MODEL_FALLBACKS="gemini-2.5-flash,..." to enable.
+_PRIMARY_MODEL = GEMINI_MODEL
+_FALLBACK_MODELS = [
+    m.strip()
+    for m in os.environ.get("GEMINI_MODEL_FALLBACKS", "").split(",")
+    if m.strip()
+]
+MODELS: list[str] = [_PRIMARY_MODEL, *_FALLBACK_MODELS]
+
+# Models marked quota-exhausted for this process are skipped until restarted.
+_model_exhausted: set[str] = set()
+
+
+def _try_models(run, max_retries: int = 5):
+    """Try `run(model)` across the model chain. On a quota error for a model,
+    mark it exhausted and move to the next model. Re-raises RateLimitError if
+    every model+key attempt fails."""
+    last_error = None
+    for model in MODELS:
+        if model in _model_exhausted:
+            continue
+        for attempt in range(max_retries):
+            try:
+                return run(model)
+            except Exception as e:
+                error_msg = str(e)
+                last_error = e
+                if _is_quota_error(error_msg):
+                    # This model's quota is done for now — fall back, don't spin.
+                    print(f"MODEL_QUOTA_EXHAUSTED: {model} — trying next model")
+                    _model_exhausted.add(model)
+                    break
+                if _is_retryable(error_msg):
+                    wait = min(2 ** attempt, 10)
+                    print(f"RETRY {attempt+1}/{max_retries} after {wait}s: {error_msg[:120]}")
+                    time.sleep(wait)
+                    continue
+                raise
+    # Everything failed. If every model was a quota error, say so clearly.
+    if last_error is None:
+        raise RateLimitError("No Gemini models available.")
+    raise RateLimitError(
+        f"All Gemini models/keys exhausted after retries. "
+        f"Last error: {last_error}"
+    )
+
+
+def call_gemini(content: str, theme: str, max_retries: int = 5) -> str:
+    def _run(model: str) -> str:
+        tried_keys = set()
+        for _ in range(max_retries):
             api_key = key_manager.get_key()
             if api_key in tried_keys and len(key_manager._keys) > 1:
                 api_key = key_manager.get_key()
             tried_keys.add(api_key)
-
             client = genai.Client(api_key=api_key)
             response = client.models.generate_content(
-                model=GEMINI_MODEL,
+                model=model,
                 contents=[
                     types.Content(
                         role="user",
@@ -418,22 +553,9 @@ def call_gemini(content: str, theme: str, max_retries: int = 5) -> str:
                 ),
             )
             return response.text or ""
+        raise RateLimitError("No API key available for this model.")
 
-        except Exception as e:
-            error_msg = str(e)
-            last_error = e
-            if _is_retryable(error_msg):
-                key_manager.mark_exhausted(api_key)
-                wait = min(2 ** attempt, 10)
-                print(f"RETRY {attempt+1}/{max_retries} after {wait}s: {error_msg[:120]}")
-                time.sleep(wait)
-                continue
-            raise
-
-    raise RateLimitError(
-        f"All API keys exhausted after {max_retries} attempts. "
-        f"Last error: {last_error}"
-    )
+    return _try_models(_run, max_retries)
 
 
 @app.post("/api/generate", response_model=GenerateResponse)
@@ -446,6 +568,8 @@ async def generate_ebook(request: GenerateRequest):
         markdown_text = call_gemini(request.content, request.theme)
         return GenerateResponse(markdown=markdown_text, complete=True)
     except RateLimitError as e:
+        if _is_quota_error(str(e)):
+            raise _quota_error()
         raise HTTPException(status_code=429, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Gemini API error: {str(e)}")
@@ -457,45 +581,42 @@ async def generate_ebook_v2(request: GenerateRequest):
 
 
 def _call_gemini_parts(system_prompt: str, user_text: str, temperature: float = 0.7) -> str:
-    last_error = None
-    for attempt in range(5):
-        try:
-            api_key = key_manager.get_key()
-            client = genai.Client(api_key=api_key)
-            response = client.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=[types.Part.from_text(text=user_text)],
-                config=types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    temperature=temperature,
-                ),
-            )
-            return response.text or ""
-        except Exception as e:
-            error_msg = str(e)
-            last_error = e
-            if _is_retryable(error_msg):
-                wait = min(2 ** attempt, 10)
-                print(f"RETRY(book) {attempt+1}/5 after {wait}s: {error_msg[:120]}")
-                time.sleep(wait)
-                continue
-            raise
-    raise RateLimitError(f"Gemini unavailable after 5 retries: {last_error}")
+    def _run(model: str) -> str:
+        api_key = key_manager.get_key()
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model=model,
+            contents=[types.Part.from_text(text=user_text)],
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                temperature=temperature,
+            ),
+        )
+        return response.text or ""
+
+    return _try_models(_run, max_retries=5)
 
 
-def generate_book_structure(content: str, template_id: str, target_pages: int) -> dict:
+def generate_book_structure(
+    content: str, template_id: str, target_pages: int, lang: str = "en"
+) -> dict:
     """Gemini produces a structured book; if JSON parsing fails, fall back to
     the markdown generator + block parser so generation never hard-fails."""
+    lang_name = LANG_NAMES.get(lang, "English")
+    system_prompt = (
+        BOOK_SYSTEM_PROMPT.replace("<<TARGET_PAGES>>", str(target_pages))
+        .replace("<<LANGUAGE>>", lang_name)
+        .replace("<<LANGUAGE_RULE>>", _language_rule(lang))
+    )
     user_text = (
-        f"Template: {template_id}\nTarget pages: {target_pages}\n\n"
+        f"Template: {template_id}\nTarget pages: {target_pages}\n"
+        f"WRITE THE ENTIRE BOOK IN {lang_name.upper()}.\n\n"
         "Tell this as one continuous story, inside a single everyday world, with "
         "named characters, a cliffhanger at the end of every section, and every "
         "hard word explained in plain language right after it appears.\n\n"
         f"Notes to turn into the story:\n{content}"
     )
-    raw = _call_gemini_parts(
-        BOOK_SYSTEM_PROMPT.replace("<<TARGET_PAGES>>", str(target_pages)), user_text
-    )
+    raw = _call_gemini_parts(system_prompt, user_text, temperature=0.5)
     cleaned = _strip_json_fence(raw)
     try:
         parsed = json.loads(cleaned)
@@ -518,6 +639,37 @@ def generate_book_structure(content: str, template_id: str, target_pages: int) -
         if blocks
         else [],
     }
+
+
+def translate_book_structure(book: dict, lang: str, template_id: str = "", target_pages: int = 12) -> dict:
+    """Translate a structured English book into another language (e.g. Bengali)
+    while keeping the exact block structure. Code and identifiers stay English;
+    prose, titles, and code comments may be translated."""
+    if lang not in LANG_NAMES or lang == "en":
+        return book
+    lang_name = LANG_NAMES[lang]
+    payload = json.dumps(book, ensure_ascii=False)
+    user_text = (
+        f"Target language: {lang_name}\n\n"
+        "Translate this structured book:\n"
+        f"{payload}"
+    )
+    system_prompt = TRANSLATE_SYSTEM_PROMPT.format(lang=lang_name)
+    raw = _call_gemini_parts(system_prompt, user_text, temperature=0.4)
+    cleaned = _strip_json_fence(raw)
+    try:
+        translated = json.loads(cleaned)
+    except Exception:
+        traceback.print_exc()
+        return book
+    if not (isinstance(translated, dict) and isinstance(translated.get("sections"), list)):
+        return book
+    # Carry over structural/identity fields the translator may have dropped.
+    translated.setdefault("template_id", book.get("template_id", template_id))
+    translated.setdefault("target_pages", book.get("target_pages", target_pages))
+    translated.setdefault("title", book.get("title", "Ebook"))
+    translated.setdefault("subtitle", book.get("subtitle", ""))
+    return translated
 
 
 # Used whenever the model forgets a subtitle: still promises a story, never
@@ -656,18 +808,30 @@ def generate_book(request: BookRequest):
     if not request.content.strip():
         raise HTTPException(status_code=400, detail="Content cannot be empty")
     _require_keys()
+    # "both" = English primary + a Bengali translation; "bn" = Bengali only;
+    # anything else (including "en") = English only.
+    language = request.language if request.language in ("en", "bn", "both") else "en"
     template = _load_template(request.template_id)
     started = time.time()
     try:
-        book = generate_book_structure(request.content, request.template_id, request.target_pages)
+        primary_lang = "bn" if language == "bn" else "en"
+        book = generate_book_structure(
+            request.content, request.template_id, request.target_pages, lang=primary_lang
+        )
         book = bookmod.adjust_to_page_target(book, template, request.target_pages)
         pages = bookmod.count_pages(book, template)
+        book_bn = None
+        if language == "both":
+            book_bn = translate_book_structure(
+                book, "bn", request.template_id, request.target_pages
+            )
         ebook_id = db.save_ebook(
             book=book,
             template_id=request.template_id,
             target_pages=request.target_pages,
             page_count=pages,
             source_content=request.content,
+            book_bn=book_bn,
         )
         db.log_event(
             "generate-book",
@@ -678,13 +842,18 @@ def generate_book(request: BookRequest):
         )
         return {
             "book": book,
+            "book_bn": book_bn,
             "page_count": pages,
             "target_pages": request.target_pages,
             "template_id": request.template_id,
+            "language": language,
             "ebook_id": ebook_id,
         }
+
     except RateLimitError as e:
         db.log_event("generate-book", "rate_limited", detail=str(e))
+        if _is_quota_error(str(e)):
+            raise _quota_error()
         raise HTTPException(status_code=429, detail=str(e))
     except HTTPException:
         raise
@@ -695,6 +864,34 @@ def generate_book(request: BookRequest):
         db.log_event("generate-book", "error", detail=str(e))
         raise HTTPException(status_code=500, detail=f"Book generation failed: {str(e)}")
 
+
+
+@app.post("/api/translate-book")
+def translate_book(request: TranslateRequest):
+    """Translate an already-generated structured book into another language
+    (currently Bengali). Returns the translated book with the same structure."""
+    if not request.book:
+        raise HTTPException(status_code=400, detail="No book provided")
+    _require_keys()
+    if request.language not in ("bn", "both"):
+        raise HTTPException(status_code=400, detail="Only translation into Bengali is supported")
+    try:
+        translated = translate_book_structure(
+            request.book, request.language, request.template_id, request.target_pages
+        )
+        return {
+            "book": translated,
+            "language": request.language,
+            "template_id": request.template_id,
+        }
+    except RateLimitError as e:
+        if _is_quota_error(str(e)):
+            raise _quota_error()
+        raise HTTPException(status_code=429, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Translation failed: {str(e)}")
 
 
 @app.post("/api/preview")
@@ -721,10 +918,14 @@ def download_pdf(request: DownloadRequest):
     # (Playwright) and must not block the event loop for other requests.
     if request.book:
         started = time.time()
+        # For a Bengali PDF, prefer the already-translated book when present.
+        book_payload = request.book
+        if request.language == "bn" and isinstance(request.book.get("book_bn"), dict):
+            book_payload = request.book["book_bn"]
         try:
             template = _load_template(request.template_id)
-            entries = bookmod.book_entries(request.book)
-            document = bookmod.render_book_document(request.book, template, page_map=None)
+            entries = bookmod.book_entries(book_payload)
+            document = bookmod.render_book_document(book_payload, template, page_map=None)
             pdf_path = compile_document_to_pdf(document, entries, template=template)
             db.log_event(
                 "download-pdf",
@@ -734,7 +935,7 @@ def download_pdf(request: DownloadRequest):
             )
             return _pdf_response(
                 pdf_path,
-                filename=_pdf_filename(request.book.get("title")),
+                filename=_pdf_filename(book_payload.get("title")),
                 ebook_id=request.ebook_id,
             )
         except HTTPException:

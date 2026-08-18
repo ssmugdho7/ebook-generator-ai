@@ -10,6 +10,7 @@ Decouples content parsing, diagram rendering, and final layout:
 All themes, typography, syntax highlighting, and pagination are controlled in CSS.
 """
 
+import base64
 import os
 import re
 import tempfile
@@ -745,12 +746,51 @@ def mermaid_fallback_colors(template: dict) -> list:
     return colors
 
 
-def css_from_vars(v: dict) -> str:
+# ---------------------------------------------------------------------------
+# Bengali font embedding (so Bangla ebooks render glyphs in the PDF/preview)
+# ---------------------------------------------------------------------------
+
+def _bengali_font_path() -> str:
+    """Location of the bundled Noto Sans Bengali font. Override with
+    BENGALI_FONT_PATH (e.g. in the Docker image)."""
+    return os.environ.get(
+        "BENGALI_FONT_PATH",
+        os.path.join(os.path.dirname(__file__), "assets", "fonts", "NotoSansBengali-Regular.ttf"),
+    )
+
+
+def bengali_font_face() -> str:
+    """Return an @font-face rule embedding Noto Sans Bengali as a data URI.
+
+    Returns "" when the font file is missing, so non-Bengali builds are
+    unaffected and the feature degrades gracefully.
+    """
+    path = _bengali_font_path()
+    if not os.path.exists(path):
+        return ""
+    try:
+        with open(path, "rb") as f:
+            data = base64.b64encode(f.read()).decode("ascii")
+    except Exception:
+        return ""
+    return (
+        "@font-face {\n"
+        "  font-family: 'Noto Sans Bengali';\n"
+        "  font-style: normal;\n"
+        "  font-weight: 400;\n"
+        "  font-display: swap;\n"
+        f"  src: url(data:font/ttf;base64,{data}) format('truetype');\n"
+        "}\n"
+    )
+
+
+def css_from_vars(v: dict, bengali: bool = False) -> str:
     """Build the shared stylesheet from a vars dict.
 
     `v` needs: page_bg, text, heading, accent, accent_soft, muted, block_bg,
     code_bg, code_text, code_line, title_page_bg, font, heading_font, mono,
     radius, callouts, diagram. Templates produce these via templates.template_css_vars.
+    When `bengali` is True, Noto Sans Bengali is embedded so Bangla glyphs render.
     """
     accent = v.get("accent")
     accent_soft = v.get("accent_soft", v.get("block_bg"))
@@ -909,7 +949,32 @@ h1.chapter-title { font-size: 26pt; text-align: center; margin-top: 70mm; }
     css = css.replace("CC_BORDER", accent or "#000").replace("CC_BG", accent_soft)
     cover_css = cover.replace("TITLE_BG", v.get("title_page_bg", v.get("page_bg", "#fff")))
     header_css = header.replace("MUTED", muted).replace("ACCENT", accent or "#000")
-    return header_css + cover_css + "\n" + css + "\n" + callout_css + diagram_css
+
+    bengali_font = bengali_font_face() if bengali else ""
+    if bengali:
+        # Append a Bengali-capable family so Bangla glyphs render in PDFs.
+        css = css.replace(
+            "font-family: FONT;",
+            "font-family: FONT, 'Noto Sans Bengali', sans-serif;",
+            1,
+        )
+        # Also widen headings/mono fallbacks for any stray Bengali.
+        css = css.replace(
+            "font-family: HEADING_FONT;",
+            "font-family: HEADING_FONT, 'Noto Sans Bengali', serif;",
+            1,
+        )
+    return (
+        header_css
+        + cover_css
+        + "\n"
+        + bengali_font
+        + "\n"
+        + css
+        + "\n"
+        + callout_css
+        + diagram_css
+    )
 
 
 def build_css(theme_key: str) -> str:
@@ -1366,6 +1431,7 @@ def _section_pages(pdf_path: str, entries) -> Dict[str, int]:
     )
     start = toc_idx + 1
     result: Dict[str, int] = {}
+    last = start  # fallback page if a title can't be located (e.g. non-Latin text)
     for sid, title in entries:
         needle = _strip_md(title)
         found = next(
@@ -1373,9 +1439,11 @@ def _section_pages(pdf_path: str, entries) -> Dict[str, int]:
             None,
         )
         if found is None:
-            raise ValueError(
-                f"Could not locate section {sid!r} ({title!r}) in the rendered PDF"
-            )
+            # Don't abort the whole PDF over a missing TOC page number — just
+            # inherit the previous section's page so the outline still builds.
+            print(f"SECTION_LOOKUP_MISS: {sid} ({title!r})")
+            found = last
+        last = found
         result[sid] = found + 1
     doc.close()
     return result

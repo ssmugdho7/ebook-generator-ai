@@ -108,6 +108,11 @@ export interface Book {
   }[];
 }
 
+/** A book translated into another language (e.g. Bengali). Same shape as Book. */
+export type TranslatedBook = Book;
+
+export type EbookLanguage = "en" | "bn" | "both";
+
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
@@ -133,17 +138,35 @@ export async function getTemplates(): Promise<TemplateInfo[]> {
 export async function generateBook(
   content: string,
   templateId: string,
-  targetPages: number
+  targetPages: number,
+  language: EbookLanguage = "en"
 ): Promise<{
   book: Book;
+  book_bn?: TranslatedBook | null;
   page_count: number;
   target_pages: number;
+  language: EbookLanguage;
   ebook_id?: string | null;
 }> {
   return postJson("/api/generate-book", {
     content,
     template_id: templateId,
     target_pages: targetPages,
+    language,
+  });
+}
+
+export async function translateBook(
+  book: Book,
+  templateId: string,
+  targetPages: number,
+  language: "bn" = "bn"
+): Promise<{ book: TranslatedBook; language: "bn"; template_id: string }> {
+  return postJson("/api/translate-book", {
+    book,
+    template_id: templateId,
+    target_pages: targetPages,
+    language,
   });
 }
 
@@ -161,7 +184,8 @@ export async function getBookPreview(
 export async function downloadBookPdf(
   book: Book,
   templateId: string,
-  ebookId?: string | null
+  ebookId?: string | null,
+  language: "en" | "bn" = "en"
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/api/download-pdf`, {
     method: "POST",
@@ -170,6 +194,7 @@ export async function downloadBookPdf(
       book,
       template_id: templateId,
       ebook_id: ebookId ?? null,
+      language,
     }),
   });
 
@@ -196,6 +221,7 @@ export interface LibraryItem {
   created_at: string | null;
   has_pdf: boolean;
   pdf_bytes: number | null;
+  book_bn?: TranslatedBook | null;
 }
 
 export async function getLibrary(

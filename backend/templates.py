@@ -344,7 +344,7 @@ def template_css_vars(template: dict) -> dict:
     }
 
 
-def build_template_css(template: dict) -> str:
+def build_template_css(template: dict, bengali: bool = False) -> str:
     from pipeline import css_from_vars
 
-    return css_from_vars(template_css_vars(template))
+    return css_from_vars(template_css_vars(template), bengali=bengali)

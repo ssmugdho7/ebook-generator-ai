@@ -201,6 +201,8 @@ FROM generation_events ORDER BY created_at DESC LIMIT 20;
 |----------|----------|---------|--------------|
 | `GEMINI_API_KEYS` | yes | — | Comma-separated Gemini keys, rotated automatically |
 | `GEMINI_API_KEY` | no | — | Single-key fallback |
+| `GEMINI_MODEL` | no | `gemini-3.6-flash` | Model used first for generation |
+| `GEMINI_MODEL_FALLBACKS` | no | _(empty)_ | Comma-separated backup models (e.g. `gemini-2.5-flash`); auto-tried when the primary is out of quota |
 | `DATABASE_URL` | no* | — | Neon connection string. Empty ⇒ no library, generation still works |
 | `ALLOWED_ORIGINS` | no | `*` | Comma-separated frontend origins; bare hostnames get `https://` added |
 | `PAGE_VERIFY` | no | `true` | `true` = render the PDF to count pages exactly; `false` = fast estimate |

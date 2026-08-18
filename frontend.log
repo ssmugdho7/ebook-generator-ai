@@ -1,0 +1,12 @@
+npm notice run ebook-writer@0.1.0 dev
+npm notice run next dev
+▲ Next.js 16.3.0 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.1.9:3000
+- Environments: .env.local
+✓ Ready in 267ms
+✓ Running next.config.ts took 108ms
+
+ GET / 200 in 162ms (next.js: 97ms, application-code: 65ms)
+ GET / 200 in 33ms (next.js: 8ms, application-code: 26ms)
+ GET / 200 in 36ms (next.js: 13ms, application-code: 23ms)

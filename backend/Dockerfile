@@ -36,6 +36,9 @@ COPY . .
 ENV PDF_OUTPUT_DIR=/tmp/ebook-writer
 RUN mkdir -p /tmp/ebook-writer
 
+# Bundled Bengali font so Bangla ebooks render glyphs in the PDF/preview.
+ENV BENGALI_FONT_PATH=/app/assets/fonts/NotoSansBengali-Regular.ttf
+
 EXPOSE 8000
 
 # Render injects $PORT. One worker: each PDF render spawns Chromium, so extra

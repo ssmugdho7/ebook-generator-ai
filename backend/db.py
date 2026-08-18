@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS ebooks (
     section_count  integer     NOT NULL DEFAULT 0,
     source_content text,
     book           jsonb       NOT NULL,
+    book_bn        jsonb,
     created_at     timestamptz NOT NULL DEFAULT now()
 );
 
@@ -148,6 +149,10 @@ def init_schema() -> bool:
         with _connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(SCHEMA_SQL)
+                # Add columns introduced after the initial schema (idempotent).
+                cur.execute(
+                    "ALTER TABLE ebooks ADD COLUMN IF NOT EXISTS book_bn jsonb"
+                )
             conn.commit()
         _SCHEMA_READY = True
         _LAST_ERROR = None
@@ -188,6 +193,7 @@ def save_ebook(
     target_pages: int,
     page_count: Optional[int],
     source_content: str = "",
+    book_bn: Optional[dict] = None,
 ) -> Optional[str]:
     """Insert a generated book; returns its id (uuid string) or None."""
     if not is_configured():
@@ -198,8 +204,8 @@ def save_ebook(
                 cur.execute(
                     """
                     INSERT INTO ebooks (title, subtitle, template_id, target_pages,
-                                        page_count, section_count, source_content, book)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                                        page_count, section_count, source_content, book, book_bn)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
                     RETURNING id
                     """,
                     (
@@ -211,6 +217,7 @@ def save_ebook(
                         len(book.get("sections") or []),
                         (source_content or "")[:20000],
                         json.dumps(book),
+                        json.dumps(book_bn) if book_bn else None,
                     ),
                 )
                 new_id = cur.fetchone()[0]
@@ -325,7 +332,7 @@ def get_ebook(ebook_id: str) -> Optional[Dict[str, Any]]:
                 cur.execute(
                     """
                     SELECT id, title, subtitle, template_id, target_pages,
-                           page_count, book, created_at
+                           page_count, book, book_bn, created_at
                     FROM ebooks WHERE id = %s
                     """,
                     (ebook_id,),
@@ -336,6 +343,9 @@ def get_ebook(ebook_id: str) -> Optional[Dict[str, Any]]:
         book = row[6]
         if isinstance(book, (str, bytes)):
             book = json.loads(book)
+        book_bn = row[7]
+        if isinstance(book_bn, (str, bytes)):
+            book_bn = json.loads(book_bn)
         return {
             "id": str(row[0]),
             "title": row[1],
@@ -344,7 +354,8 @@ def get_ebook(ebook_id: str) -> Optional[Dict[str, Any]]:
             "target_pages": row[4],
             "page_count": row[5],
             "book": book,
-            "created_at": row[7].isoformat() if row[7] else None,
+            "book_bn": book_bn,
+            "created_at": row[8].isoformat() if row[8] else None,
         }
     except Exception as e:
         print(f"DB_GET_FAILED {type(e).__name__}: {e}")
