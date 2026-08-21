@@ -99,6 +99,17 @@ def quote(text: str) -> dict:
     return {"type": "quote", "text": text.strip()}
 
 
+def image_block(prompt: str, caption: str = "", image_data: str = "") -> dict:
+    """An AI-generated image block.
+    
+    Args:
+        prompt: The image generation prompt used to create this image
+        caption: Optional caption text displayed below the image
+        image_data: Base64-encoded image data (JPEG/PNG)
+    """
+    return {"type": "image", "prompt": prompt.strip(), "caption": caption.strip(), "image_data": image_data}
+
+
 # ---------------------------------------------------------------------------
 # Markdown -> structured book (used as the parse fallback + legacy path)
 # ---------------------------------------------------------------------------
@@ -302,8 +313,8 @@ def _fallback_svg(
     return svg
 
 
-def render_block(block: dict, seq: int) -> str:
-    kind = block["type"]
+def render_block(block: dict, seq: int, _tmp_images=None) -> str:
+    kind = block.get("type")
     if kind == "paragraph":
         return f"<p>{_inline(block['text'])}</p>"
     if kind == "subheading":
@@ -348,10 +359,37 @@ def render_block(block: dict, seq: int) -> str:
         return f"<table><thead><tr>{header}</tr></thead><tbody>{rows}</tbody></table>"
     if kind == "quote":
         return f"<blockquote>{_inline(block['text'])}</blockquote>"
+    if kind == "image":
+        img_data = block.get("image_data", "")
+        if img_data:
+            import base64 as b64
+            try:
+                raw = b64.b64decode(img_data)
+                mime = "image/jpeg"
+                if raw[:4] == b"\x89PNG":
+                    mime = "image/png"
+                elif raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
+                    mime = "image/webp"
+                src = f"data:{mime};base64,{img_data}"
+            except Exception:
+                src = ""
+        else:
+            src = ""
+        if not src:
+            return ""
+        prompt = block.get("prompt", "")
+        caption = block.get("caption", "")
+        alt = html_lib.escape(prompt[:100] if prompt else "AI generated image")
+        figure = '<figure class="ebook-image">'
+        figure += f'<img src="{src}" alt="{alt}" loading="lazy"/>'
+        if caption:
+            figure += f'<figcaption>{_inline(caption)}</figcaption>'
+        figure += '</figure>'
+        return figure
     return ""
 
 
-def render_sections(sections) -> str:
+def render_sections(sections, _tmp_images=None) -> str:
     """Render sections -> body HTML (with sec-N anchors for TOC/outline)."""
     out = []
     seq = [0]
@@ -365,7 +403,11 @@ def render_sections(sections) -> str:
         out.append(f'<h2 id="{sid}"{cls}>{_inline(sec["title"])}</h2>')
         for block in sec.get("blocks", []):
             seq[0] += 1
-            out.append(render_block(block, seq[0]))
+            html = render_block(block, seq[0], _tmp_images)
+            # Track temp image files for cleanup
+            if _tmp_images is not None and block.get("_tmp_image"):
+                _tmp_images.append(block["_tmp_image"])
+            out.append(html)
     return "\n".join(out)
 
 
@@ -383,8 +425,14 @@ def render_book_document(book: dict, template: dict, page_map: dict = None) -> s
 
     title = book.get("title", "Ebook")
     subtitle = book.get("subtitle", "")
-    body_html = render_sections(book_sections(book))
+    
+    # Track temp image files for cleanup
+    _tmp_images = []
+    body_html = render_sections(book_sections(book), _tmp_images)
     bengali = _needs_bengali_font(book)
+    
+    # Store temp files in book for cleanup later
+    book["_tmp_images"] = _tmp_images
 
     page_map = page_map or {}
     toc_items = []
@@ -419,6 +467,17 @@ def render_book_document(book: dict, template: dict, page_map: dict = None) -> s
 </html>"""
 
 
+def cleanup_tmp_images(book: dict) -> None:
+    """Remove temporary image files created during rendering."""
+    import os
+    for path in book.get("_tmp_images", []):
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception:
+            pass
+
+
 def render_book_preview_html(book: dict, template: dict) -> str:
     """HTML fragment for the live in-app preview (no page numbers needed)."""
     from templates import build_template_css, template_pygments_css
@@ -441,6 +500,17 @@ def render_book_preview_html(book: dict, template: dict) -> str:
         flags=re.DOTALL,
     )
 
+    img_count = body.count('<img ')
+    placeholder_count = body.count('ebook-image-placeholder')
+    print(f"PREVIEW_DEBUG: img_tags={img_count}, placeholders={placeholder_count}")
+
+    toc_items = []
+    for sid, text in book_entries(book):
+        toc_items.append(
+            f'<li><a href="#{sid}">{html_lib.escape(text)}</a></li>'
+        )
+    toc_html = "".join(toc_items)
+
     bengali = _needs_bengali_font(book)
     return f"""<!DOCTYPE html>
 <html lang="{'bn' if bengali else 'en'}">
@@ -454,10 +524,17 @@ body {{ padding: 24px; background: {template['palette']['page_bg']}; }}
 .fallback-diagram {{ display: block; margin: 3mm auto; max-width: 100%; height: auto; }}
 {template_pygments_css(template)}
 {build_template_css(template, bengali=bengali)}
+.preview-toc {{ margin-bottom: 24px; padding: 16px; background: {template['palette'].get('card_bg', '#fff')}; border-radius: 12px; border: 1px solid {template['palette'].get('border', '#e5e7eb')}; }}
+.preview-toc h2 {{ margin: 0 0 12px 0; font-size: 18px; color: {template['palette'].get('heading', '#111')}; }}
+.preview-toc ol {{ margin: 0; padding-left: 20px; }}
+.preview-toc li {{ margin: 6px 0; }}
+.preview-toc a {{ color: {template['palette'].get('accent', '#2563eb')}; text-decoration: underline; text-underline-offset: 3px; }}
+.preview-toc a:hover {{ opacity: 0.8; }}
 </style>
 </head>
 <body>
   <h1 class="chapter-title" style="margin-top:0">{_inline(book.get('title', ''))}</h1>
+  {f'<div class="preview-toc"><h2>Table of Contents</h2><ol>{toc_html}</ol></div>' if toc_html else ''}
   {body}
 </body>
 </html>"""
@@ -507,6 +584,8 @@ def estimate_pages(book: dict) -> int:
                 total_mm += lines * 3.6 + 14.0
             elif kind == "diagram":
                 total_mm += 55.0
+            elif kind == "image":
+                total_mm += 65.0  # Images take more vertical space
             elif kind == "callout":
                 lines = max(1, math.ceil(len(block.get("text", "")) / 85))
                 total_mm += lines * 4.9 + 12.0
@@ -634,6 +713,11 @@ def book_to_markdown(book: dict) -> str:
                 out.append("```mermaid")
                 out.append(block["spec"])
                 out.append("```")
+            elif block["type"] == "image":
+                out.append("")
+                out.append(f"![{block.get('prompt', 'AI generated image')}]()")
+                if block.get("caption"):
+                    out.append(f"*{block['caption']}*")
             elif block["type"] == "callout":
                 out.append("")
                 out.append(f"> {block['text']}")

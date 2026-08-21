@@ -47,6 +47,7 @@ CHROMIUM_ARGS = [
     "--no-first-run",
     "--no-zygote",
     "--font-render-hinting=none",
+    "--allow-file-access-from-files",
 ]
 
 
@@ -898,6 +899,20 @@ tr:nth-child(even) td { background: BLOCK_BG; }
 .mermaid .cluster rect { stroke-width: 2px; rx: 8; ry: 8; }
 .merr { color: ERR_COLOR; font-size: 9pt; }
 
+/* ---------- AI-generated images ---------- */
+.ebook-image { text-align: center; margin: 5mm 0; break-inside: avoid;
+               page-break-inside: avoid; }
+.ebook-image img { display: block; margin: 0 auto; max-width: 100%; height: auto;
+                   border-radius: RADIUS; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+.ebook-image figcaption { margin-top: 2mm; font-size: 8.5pt; color: MUTED;
+                           font-style: italic; }
+.ebook-image-placeholder { display: flex; flex-direction: column; align-items: center;
+                           justify-content: center; padding: 8mm 4mm; margin: 0 auto;
+                           background: BLOCK_BG; border: 2px dashed CODE_LINE;
+                           border-radius: RADIUS; max-width: 80%; }
+.ebook-image-icon { font-size: 24pt; margin-bottom: 2mm; opacity: 0.6; }
+.ebook-image-text { font-size: 8pt; color: MUTED; text-align: center; }
+
 /* ---------- cover / title ---------- */
 .cover-header { string-set: chap-title content(); }
 .chapter-title { string-set: chap-title content(); }
@@ -912,8 +927,8 @@ h1.chapter-title { font-size: 26pt; text-align: center; margin-top: 70mm; }
           align-items: baseline; padding: 1.6mm 0; border-bottom: 0.3pt solid CODE_LINE;
           font-size: 11pt; }
 .toc li::before { content: counter(toc) ".  "; color: ACCENT_TEXT; font-weight: bold; }
-.toc li a { color: TEXT; text-decoration: none; }
-.toc li a:hover { color: ACCENT; }
+.toc li a { color: ACCENT; text-decoration: underline; text-underline-offset: 2pt; }
+.toc li a:hover { color: ACCENT; opacity: 0.8; }
 .toc-pg { color: MUTED; min-width: 8mm; text-align: right; margin-left: 4mm; }
 
 /* ---------- misc ---------- */
@@ -1338,6 +1353,17 @@ async def render_pdf(
             except Exception:
                 pass  # pull whatever rendered
             await page.wait_for_timeout(300)
+
+            # Make sure every embedded image has finished loading before we
+            # snapshot the page to PDF. `data:` URLs decode synchronously, but
+            # Chromium still needs a tick to paint them into the layout.
+            try:
+                await page.wait_for_function(
+                    """() => Array.from(document.images).every(img => img.complete)""",
+                    timeout=30000,
+                )
+            except Exception:
+                pass
 
             # Layout safety net (Bug 2): if a heading's container is a fixed-height
             # block (>100px taller than the heading itself) or the heading carries an

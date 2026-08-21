@@ -74,6 +74,151 @@ app.add_middleware(
 key_manager = create_key_manager()
 
 
+# ---------------------------------------------------------------------------
+# Image Generation (Google Imagen)
+# ---------------------------------------------------------------------------
+
+# Model name for image generation (using Gemini's image output)
+IMAGEN_MODEL = "gemini-2.5-flash-image"
+
+# Whether image generation is enabled (set ENABLE_IMAGE_GEN=true to enable)
+# Disabled by default to avoid hitting quota limits
+ENABLE_IMAGE_GEN = os.environ.get("ENABLE_IMAGE_GEN", "false").lower() == "true"
+
+# Unsplash API for free stock photos (get key at https://unsplash.com/developers)
+UNSPLASH_ACCESS_KEY = os.environ.get("UNSPLASH_ACCESS_KEY", "")
+
+# Common English stop-words to strip when building Unsplash search queries.
+_STOP_WORDS = {
+    "a", "an", "the", "with", "in", "on", "at", "for", "of", "and", "or", "but",
+    "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "do",
+    "does", "did", "will", "would", "could", "should", "may", "might", "shall",
+    "can", "to", "from", "by", "about", "into", "through", "during", "before",
+    "after", "above", "below", "between", "out", "off", "over", "under", "again",
+    "further", "then", "once", "here", "there", "when", "where", "why", "how",
+    "all", "each", "every", "both", "few", "more", "most", "other", "some", "such",
+    "no", "not", "only", "own", "same", "so", "than", "too", "very", "just",
+    "because", "but", "and", "if", "or", "as", "until", "while", "which", "this",
+    "that", "these", "those", "its", "it", "he", "she", "they", "them", "his",
+    "her", "their", "my", "your", "our", "also", "back", "even", "still", "way",
+    "take", "make", "get", "go", "come", "think", "know", "see", "look", "want",
+    "give", "use", "find", "tell", "ask", "work", "seem", "feel", "try", "leave",
+    "call", "said", "good", "new", "first", "last", "long", "great", "little",
+    "right", "big", "high", "different", "small", "large", "next", "early",
+    "young", "important", "public", "bad", "able", "having", "each", "like",
+    "don", "now", "d", "ll", "m", "o", "re", "ve", "y", "ain", "aren", "couldn",
+    "didn", "doesn", "hadn", "hasn", "haven", "isn", "ma", "mightn", "mustn",
+    "needn", "shan", "shouldn", "wasn", "weren", "won", "wouldn",
+}
+
+
+def _extract_search_keywords(text: str, max_terms: int = 4) -> str:
+    """Extract 2-4 short keyword terms from a longer description for search."""
+    words = re.findall(r"[a-zA-Z]{3,}", text)
+    keywords = [w for w in words if w.lower() not in _STOP_WORDS]
+    if len(keywords) < 2 and words:
+        keywords = words[:max_terms]
+    return " ".join(keywords[:max_terms]) if keywords else text.split(",")[0].strip()[:50]
+
+
+def generate_image(prompt: str, retries: int = 3) -> str:
+    """Fetch a stock photo from Unsplash based on the prompt.
+
+    Uses 2-4 extracted keyword terms for the search query (much better hit
+    rate than full-sentence descriptions). Retries with broader queries on
+    zero results, detects 429 rate-limit responses, and logs every failure
+    with status code, headers, query, and response body.
+    """
+    import base64
+    import requests
+
+    if not UNSPLASH_ACCESS_KEY:
+        raise Exception("Unsplash API key not set. Set UNSPLASH_ACCESS_KEY in backend/.env")
+
+    primary_query = _extract_search_keywords(prompt, max_terms=4)
+    words = primary_query.split()
+    queries: list[str] = [primary_query]
+    if len(words) > 1:
+        queries.append(" ".join(words[:3]))
+    if len(words) > 2:
+        queries.append(" ".join(words[:2]))
+    if len(words) > 3:
+        queries.append(words[0])
+    queries.extend(["story illustration", "concept art", "abstract photography"])
+
+    last_error = None
+    for qi, query in enumerate(queries):
+        for attempt in range(max(1, retries)):
+            try:
+                print(f"UNSPLASH_SEARCH: query={query!r} attempt={attempt + 1}/{retries}")
+                response = requests.get(
+                    "https://api.unsplash.com/search/photos",
+                    params={
+                        "query": query,
+                        "per_page": 5,
+                        "orientation": "landscape",
+                        "client_id": UNSPLASH_ACCESS_KEY,
+                    },
+                    timeout=10,
+                )
+
+                remaining = response.headers.get("X-Ratelimit-Remaining")
+                reset_at = response.headers.get("X-Ratelimit-Reset", "unknown")
+                if remaining is not None:
+                    print(f"UNSPLASH_RATELIMIT: remaining={remaining} reset={reset_at}")
+
+                if response.status_code == 429:
+                    wait = min(2 ** (attempt + 2), 60)
+                    print(
+                        f"UNSPLASH_RATE_LIMITED: query={query!r} "
+                        f"reset={reset_at} waiting {wait}s"
+                    )
+                    time.sleep(wait)
+                    continue
+
+                if response.status_code != 200:
+                    print(
+                        f"UNSPLASH_HTTP_ERROR: status={response.status_code} "
+                        f"query={query!r} body={response.text[:300]!r}"
+                    )
+                    raise Exception(f"Unsplash API error: {response.status_code}")
+
+                data = response.json()
+                results = data.get("results", [])
+
+                if not results:
+                    print(f"UNSPLASH_NO_RESULTS: query={query!r} total={data.get('total', 0)}")
+                    raise Exception(f"No images found for: {query}")
+
+                import random
+
+                image_url = random.choice(results)["urls"]["regular"]
+
+                img_response = requests.get(image_url, timeout=15)
+                if img_response.status_code != 200:
+                    print(
+                        f"UNSPLASH_IMAGE_ERROR: status={img_response.status_code} "
+                        f"url={image_url[:80]!r}"
+                    )
+                    raise Exception("Failed to download image")
+
+                img_bytes = img_response.content
+                print(f"UNSPLASH_SUCCESS: query={query!r} bytes={len(img_bytes)}")
+                return base64.b64encode(img_bytes).decode("utf-8")
+
+            except Exception as e:
+                last_error = e
+                error_msg = str(e).lower()
+                if "rate" in error_msg or "429" in error_msg:
+                    continue
+                if attempt < retries - 1:
+                    time.sleep(1)
+                    continue
+                print(f"UNSPLASH_FAILED: query={query!r} error={str(e)[:200]}")
+
+    raise Exception(f"Image fetch failed after trying {len(queries)} queries: {last_error}")
+
+
 def _require_keys() -> None:
     """Fail fast with an actionable message instead of an opaque 500 when the
     deployment is missing its Gemini credentials."""
@@ -158,7 +303,16 @@ LANG_NAMES = {
 # A short, unmissable instruction injected at the very top of the system prompt
 # so the model cannot default to English. Keyed by language code.
 LANGUAGE_RULE = {
-    "en": "LANGUAGE: Write the ENTIRE book in English.",
+    "en": (
+        "LANGUAGE: Write the ENTIRE book in English. "
+        "Translate every word, phrase, and sentence from the user's notes "
+        "into proper English. Do NOT transliterate non-English words into "
+        "English script (for example: do NOT write 'raita' or 'rasoi' if the "
+        "user's notes mention Hindi words — use the actual English equivalents "
+        "like 'yogurt sauce' or 'kitchen'). English is the ONLY language "
+        "allowed in the final output, except for code identifiers, library "
+        "names, API names, URLs, and string literals inside code blocks."
+    ),
     "bn": (
         "LANGUAGE: Write the ENTIRE book in BENGALI (বাংলা). This is the single "
         "most important rule: the title, subtitle, every section heading, every "
@@ -195,14 +349,20 @@ sound. The reader should feel safe, curious, and unable to stop reading.
 - Keep the model absurdly simple. If a 10-year-old could not picture it in one
   breath, choose something simpler.
 
-2. FAIRY-TALE SHAPE
-- Open like a story, not a syllabus: "In a small town where nobody could wait,
-  there was a bakery with one oven..."
-- Follow the classic beats across the sections: a peaceful start -> a problem
-  that hurts someone -> a clumsy first attempt that fails -> the discovery -> a
-  twist that changes everything -> the calm, confident ending -> the moral.
-- Use fairy-tale rhythm words sparingly but deliberately: "And then...",
-  "But here is the strange part...", "Nobody expected what happened next."
+ 2. OPENING AND TITLE STYLE
+ - Start with a clear, interesting title that sounds like a real book, not a
+   fairy tale. Examples: "The Bakery With One Oven", "Why Bridges Don't Fall",
+   "The Secret Life of Bread". Avoid "Once upon a time", "magic", "fairy",
+   "wizard", "spell", "curse", "enchanted", or any fantasy framing.
+ - Open with a relatable scene that makes the reader nod: "In every kitchen,
+   there is one tool everyone takes for granted..." Avoid fairy-tale openings
+   like "In a small town where nobody could wait, there was a bakery..."
+ - Keep the story shape: a calm start -> a real problem -> a first try that
+   fails -> the discovery -> a twist -> the confident ending. This is narrative
+   structure, not fairy-tale magic.
+ - Use conversational transitions: "And then...", "But here is the part most
+   people miss...", "Nobody expected what happened next." These are rhythm
+   words, not fairy-tale words.
 
 3. THRILLER PACING (this is what stops the book being boring)
 - Every section OPENS with tension: a question, a small disaster, a ticking
@@ -343,11 +503,14 @@ RULES
 - Code comments (the human notes inside a code block) MAY be written in {lang}
   when it helps the reader; the code itself stays English.
 - Translate everything else: title, subtitle, all prose, headings, callouts,
-  list items, table text, captions, quotes, the moral.
-- Preserve the story voice, the fairy-tale shape, and the thriller pacing.
+  list items, table text, captions, quotes, the moral, and image prompts.
+- Preserve the story voice and the thriller pacing.
 - Do NOT change facts, numbers, or the meaning.
 - Keep mermaid diagram source EXACTLY as-is (node ids, labels may be translated
   only if they are plain words, never the syntax).
+- Image blocks MUST be kept (type "image", prompt, caption). Translate the
+  prompt and caption into {lang} so the generated illustrations match the
+  translated text.
 - Return ONLY the translated JSON object, no markdown fence, no commentary."""
 
 
@@ -359,9 +522,9 @@ YOUR TASK
 Build the skeleton of a visually rich, story-shaped ebook. Return ONLY a single
 valid JSON object matching this schema (no markdown fence, no commentary):
 
-{
-  "title": "string (sounds like a story: 'The Bakery With One Oven')",
-  "subtitle": "string (one line that promises a story, not a lecture)",
+  {
+    "title": "string (clear, normal, and interesting — like a real book title, not a fairy tale)",
+    "subtitle": "string (one line that tells the reader what this is about, not a lecture)",
   "sections": [
     {
       "title": "string (a scene name, curious and short)",
@@ -370,6 +533,7 @@ valid JSON object matching this schema (no markdown fence, no commentary):
         {"type": "subheading", "text": "string"},
         {"type": "code", "lang": "python", "code": "string"},
         {"type": "diagram", "spec": "valid mermaid source with colors and labels", "caption": "string"},
+        {"type": "image", "prompt": "detailed image description for AI generation", "caption": "string"},
         {"type": "callout", "kind": "info|tip|warn|example|takeaway", "text": "string"},
         {"type": "list", "ordered": false, "items": ["string"]},
         {"type": "table", "header": ["string"], "rows": [["string"]]},
@@ -378,6 +542,17 @@ valid JSON object matching this schema (no markdown fence, no commentary):
     }
   ]
 }
+
+VISUAL ELEMENTS RULES
+- PROGRAMMING/CODING TOPICS: Use {"type": "diagram", "spec": "mermaid source"} for flowcharts, architecture diagrams, and code-related visuals.
+- NON-PROGRAMMING TOPICS (cooking, fitness, travel, self-help, business, health, relationships, finance, study, art, music): Use {"type": "image", "prompt": "detailed description", "caption": "optional caption"} for illustrations.
+- Image prompts should be: vivid, specific, cinematic. Example: "A cozy kitchen with warm morning light, fresh bread cooling on a wooden counter, steam rising from a pot of soup, vintage copper pans hanging on the wall"
+- MAX 1-2 images per entire book (not per section). Place them at key story moments:
+  * First section: opening scene (the world before trouble)
+  * Middle section: the discovery or turning point
+- Each image prompt must be UNIQUE - describe different scenes, angles, or moments
+- For programming topics: use mermaid diagrams, not images
+- For non-programming topics: use images instead of diagrams
 
 STORY ARC ACROSS SECTIONS (6-10 sections)
 1. "Once upon a normal day" — the little world, one character, and the trouble
@@ -610,7 +785,11 @@ def generate_book_structure(
     )
     user_text = (
         f"Template: {template_id}\nTarget pages: {target_pages}\n"
-        f"WRITE THE ENTIRE BOOK IN {lang_name.upper()}.\n\n"
+        f"WRITE THE ENTIRE BOOK IN {lang_name.upper()}. "
+        f"Translate every concept, example, and explanation into {lang_name}. "
+        f"Do NOT copy non-English words from these notes into the output — "
+        f"everything the reader sees must be in {lang_name} (except code identifiers, "
+        f"library names, API names, URLs, and string literals inside code blocks).\n\n"
         "Tell this as one continuous story, inside a single everyday world, with "
         "named characters, a cliffhanger at the end of every section, and every "
         "hard word explained in plain language right after it appears.\n\n"
@@ -623,22 +802,28 @@ def generate_book_structure(
     except Exception:
         parsed = None
     if isinstance(parsed, dict) and isinstance(parsed.get("sections"), list):
-        return _sanitize_book(parsed, template_id, target_pages, content)
+        book = _sanitize_book(parsed, template_id, target_pages, content)
+        # Generate images for non-programming topics
+        if not is_code_related(content):
+            book = _generate_images_for_book(book)
+        return book
     # fallback: legacy markdown -> structured blocks
     markdown = call_gemini(content, template_id, max_retries=3)
     blocks, title = bookmod.markdown_to_blocks(markdown)
     # Filter code blocks for non-programming topics
     if not is_code_related(content):
         blocks = [b for b in blocks if b.get("type") != "code"]
-    return {
+    book = {
         "title": title or "Ebook",
         "subtitle": STORY_SUBTITLE,
         "template_id": template_id,
         "target_pages": target_pages,
-        "sections": [{"title": title or "Ebook", "blocks": blocks}]
-        if blocks
-        else [],
+        "sections": [{"title": title or "Ebook", "blocks": blocks}],
+        "language": lang,
     }
+    if not is_code_related(content):
+        book = _generate_images_for_book(book)
+    return book
 
 
 def translate_book_structure(book: dict, lang: str, template_id: str = "", target_pages: int = 12) -> dict:
@@ -664,11 +849,17 @@ def translate_book_structure(book: dict, lang: str, template_id: str = "", targe
         return book
     if not (isinstance(translated, dict) and isinstance(translated.get("sections"), list)):
         return book
-    # Carry over structural/identity fields the translator may have dropped.
     translated.setdefault("template_id", book.get("template_id", template_id))
     translated.setdefault("target_pages", book.get("target_pages", target_pages))
     translated.setdefault("title", book.get("title", "Ebook"))
     translated.setdefault("subtitle", book.get("subtitle", ""))
+    needs_images = any(
+        block.get("type") == "image" and not block.get("image_data")
+        for sec in translated.get("sections", [])
+        for block in sec.get("blocks", [])
+    )
+    if needs_images:
+        translated = _generate_images_for_book(translated)
     return translated
 
 
@@ -715,6 +906,11 @@ def _sanitize_book(book: dict, template_id: str, target_pages: int, content: str
                 if "mermaid" in spec.lower():
                     spec = spec.split("\n", 1)[-1]
                 blocks.append(bookmod.diagram_block(spec, b.get("caption", "")))
+            elif kind == "image":
+                prompt = b.get("prompt", "")
+                caption = b.get("caption", "")
+                if prompt:
+                    blocks.append(bookmod.image_block(prompt, caption))
             elif kind == "callout":
                 kind = b.get("kind") if b.get("kind") in ("info", "tip", "warn", "example", "takeaway") else "info"
                 blocks.append(bookmod.callout(kind, b.get("text", "")))
@@ -734,6 +930,109 @@ def _sanitize_book(book: dict, template_id: str, target_pages: int, content: str
         "target_pages": target_pages,
         "sections": sections,
     }
+
+
+def _generate_images_for_book(book: dict) -> dict:
+    """Generate images for selected image blocks in the book.
+
+    Limits to max 2 images per book (1 for books under 10 pages).
+    Each image gets a unique, detailed prompt for better variety.
+    Returns book unchanged if image generation is disabled or fails.
+    """
+    if not ENABLE_IMAGE_GEN:
+        print("IMAGE_GEN_DISABLED")
+        return book
+    if not UNSPLASH_ACCESS_KEY:
+        print("UNSPLASH_KEY_MISSING: Set UNSPLASH_ACCESS_KEY in backend/.env to enable stock photos")
+        return book
+
+    target_pages = book.get("target_pages", 10)
+    max_images = 1 if target_pages < 10 else 2
+
+    all_image_blocks = []
+    for sec in book.get("sections", []):
+        for block in sec.get("blocks", []):
+            if block.get("type") == "image" and not block.get("image_data"):
+                all_image_blocks.append(block)
+
+    print(
+        f"IMAGE_GEN: sections={len(book.get('sections', []))}, "
+        f"image_blocks={len(all_image_blocks)}, max_images={max_images}"
+    )
+
+    if not all_image_blocks:
+        return book
+
+    selected_blocks = _select_best_image_blocks(all_image_blocks, max_images, book)
+    print(f"IMAGE_GEN: selected {len(selected_blocks)} blocks for generation")
+
+    for block in selected_blocks:
+        prompt = block.get("prompt", "")
+        if not prompt:
+            continue
+        try:
+            enhanced_prompt = _enhance_image_prompt(prompt, len(all_image_blocks))
+            print(f"FETCHING_IMAGE: {enhanced_prompt[:80]}...")
+            image_data = generate_image(enhanced_prompt)
+            block["image_data"] = image_data
+            print(f"IMAGE_FETCHED: success for '{prompt[:50]}...' len={len(image_data)}")
+        except Exception as e:
+            error_msg = str(e)[:200]
+            print(f"IMAGE_FETCH_FAILED: {error_msg}")
+            # Leave block without image_data - it will be skipped cleanly
+
+    return book
+
+
+def _select_best_image_blocks(blocks: list, max_count: int, book: dict) -> list:
+    """Select the best image blocks to generate, prioritizing variety."""
+    if len(blocks) <= max_count:
+        return blocks
+    
+    # Group blocks by section index for variety
+    section_map = {}
+    for block in blocks:
+        # Find which section this block belongs to
+        for i, sec in enumerate(book.get("sections", [])):
+            if block in sec.get("blocks", []):
+                section_map.setdefault(i, []).append(block)
+                break
+    
+    selected = []
+    # Pick one from each section, spreading evenly
+    section_indices = sorted(section_map.keys())
+    for idx in section_indices:
+        if len(selected) >= max_count:
+            break
+        # Pick the first block from this section
+        if section_map[idx]:
+            selected.append(section_map[idx][0])
+    
+    # If we still need more, add from any section
+    if len(selected) < max_count:
+        for block in blocks:
+            if block not in selected:
+                selected.append(block)
+                if len(selected) >= max_count:
+                    break
+    
+    return selected[:max_count]
+
+
+def _enhance_image_prompt(prompt: str, total_images: int) -> str:
+    """Enhance the prompt with style variations to ensure diverse images."""
+    # Add specific style modifiers based on position for variety
+    styles = [
+        "cinematic lighting, detailed illustration style",
+        "warm watercolor painting style, soft colors",
+        "vibrant digital art, modern illustration",
+        "cozy atmospheric photography style, natural light",
+    ]
+    # Use hash of prompt to pick a consistent but varied style
+    style_idx = hash(prompt) % len(styles)
+    style = styles[style_idx % min(len(styles), total_images)]
+    
+    return f"{prompt}, {style}, high quality, detailed"
 
 
 def _ensure_story_ending(sections: list) -> list:
@@ -927,6 +1226,8 @@ def download_pdf(request: DownloadRequest):
             entries = bookmod.book_entries(book_payload)
             document = bookmod.render_book_document(book_payload, template, page_map=None)
             pdf_path = compile_document_to_pdf(document, entries, template=template)
+            # Cleanup temp image files
+            bookmod.cleanup_tmp_images(book_payload)
             db.log_event(
                 "download-pdf",
                 "ok",
@@ -941,6 +1242,8 @@ def download_pdf(request: DownloadRequest):
         except HTTPException:
             raise
         except Exception as e:
+            # Cleanup on error too
+            bookmod.cleanup_tmp_images(book_payload)
             import traceback
 
             traceback.print_exc()

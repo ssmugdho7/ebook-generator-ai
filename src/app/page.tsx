@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect } from "react";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import CoverGenerator from "@/components/CoverGenerator";
+import DownloadProgressModal from "@/components/DownloadProgressModal";
 import {
   getTemplates,
   generateBook,
@@ -60,6 +61,8 @@ export default function Home() {
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [downloadStatus, setDownloadStatus] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [showCoverModal, setShowCoverModal] = useState(false);
 
@@ -158,10 +161,22 @@ export default function Home() {
     if (!book) return;
     setIsDownloading(true);
     setError(null);
+    setDownloadProgress(0);
+    setDownloadStatus("Starting download…");
+    let progressTimer: NodeJS.Timeout | null = null;
     try {
-      // If a Bengali PDF is wanted but we don't have it yet, translate first.
+      progressTimer = setInterval(() => {
+        setDownloadProgress((p) => {
+          if (p >= 90) {
+            if (progressTimer) clearInterval(progressTimer);
+            return 90;
+          }
+          return p + Math.random() * 15;
+        });
+      }, 400);
       if (activeLang === "bn" && !bookBn) {
         setIsTranslating(true);
+        setDownloadStatus("Translating to Bengali…");
         try {
           const t = await translateBook(book, book.template_id, book.target_pages);
           setBookBn(t.book);
@@ -170,14 +185,22 @@ export default function Home() {
           setIsTranslating(false);
         }
       }
+      setDownloadStatus("Compiling PDF…");
       const source = activeLang === "bn" ? (bookBn ?? book) : book;
       await downloadBookPdf(source, source.template_id, ebookId, activeLang);
+      setDownloadProgress(100);
+      setDownloadStatus("Download complete!");
       setShowCoverModal(true);
       refreshLibrary();
     } catch (e) {
       setError(friendlyError(e, "PDF download failed"));
     } finally {
-      setIsDownloading(false);
+      if (progressTimer) clearInterval(progressTimer);
+      setTimeout(() => {
+        setIsDownloading(false);
+        setDownloadProgress(0);
+        setDownloadStatus("");
+      }, 800);
     }
   }, [book, bookBn, activeLang, ebookId, refreshPreview, refreshLibrary]);
 
@@ -651,6 +674,11 @@ export default function Home() {
           onClose={() => setShowCoverModal(false)}
         />
       )}
+      <DownloadProgressModal
+        isOpen={isDownloading}
+        progress={Math.min(downloadProgress, 100)}
+        status={downloadStatus}
+      />
     </div>
   );
 }

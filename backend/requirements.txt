@@ -16,7 +16,7 @@ Pygments==2.18.0
 
 # --- HTML -> PDF (Chromium) + PDF post-processing ---
 playwright==1.60.0
-PyMuPDF==1.26.5
+PyMuPDF==1.28.2
 
 # --- Neon Postgres (library + stored PDFs) ---
 psycopg[binary,pool]==3.2.13

@@ -128,11 +128,14 @@ export default function MarkdownPreview({ content }: MarkdownPreviewProps) {
               td: ({ children }) => (
                 <td className="border-b border-slate-700/30 px-4 py-2 text-slate-300">{children}</td>
               ),
-              a: ({ children, href }) => (
-                <a href={href} className="text-blue-400 underline decoration-blue-400/30 transition-colors hover:text-blue-300" target="_blank" rel="noopener noreferrer">
-                  {children}
-                </a>
-              ),
+              a: ({ children, href }) => {
+                const isExternal = href && /^(https?:)?\/\//.test(href)
+                return (
+                  <a href={href} className="text-blue-400 underline decoration-blue-400/30 transition-colors hover:text-blue-300" {...(isExternal ? { target: '_blank', rel: 'noopener noreferrer' } : {})}>
+                    {children}
+                  </a>
+                )
+              },
               hr: () => <hr className="my-8 border-slate-700/50" />,
               strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
               em: ({ children }) => <em className="text-slate-200">{children}</em>,
