@@ -666,24 +666,30 @@ def _add_example_blocks(book: dict, is_programming: bool) -> None:
             "Common pitfall: most beginners skip the setup step and wonder why nothing "
             "works. Follow every step in order — the order is not optional.",
         ),
+        callout(
+            "takeaway",
+            "Remember: the goal is not to memorize syntax. The goal is to recognize "
+            "the pattern so you can use it when you need it.",
+        ),
     ]
     for sec in book.get("sections", []):
-        if len(sec.get("blocks", [])) >= 8:
+        blocks = sec.get("blocks", [])
+        if len(blocks) >= 10:
             continue
         added = 0
         new_blocks = []
-        for block in sec.get("blocks", []):
+        for block in blocks:
             new_blocks.append(block)
-            if added >= 2:
+            if added >= 3:
                 continue
-            if block["type"] in ("paragraph", "code"):
+            if block["type"] in ("paragraph", "code", "subheading"):
                 new_blocks.append(examples[sec.get("_example_idx", 0) % len(examples)])
                 sec["_example_idx"] = sec.get("_example_idx", 0) + 1
                 added += 1
         sec["blocks"] = new_blocks
 
 
-def adjust_to_page_target(book: dict, template: dict, target_pages: int) -> dict:
+def adjust_to_page_target(book: dict, template: dict = None, target_pages: int = 10) -> dict:
     """Tighten or expand content so the page count lands near the target.
     Returns the (possibly adjusted) book."""
     book = dict(book)
@@ -706,7 +712,27 @@ def adjust_to_page_target(book: dict, template: dict, target_pages: int) -> dict
                 if block["type"] == "paragraph":
                     _trim_paragraph(block)
     elif too_short and count < target_pages:
+        # Expand: split paragraphs, add examples, duplicate short sections
         _add_example_blocks(book, is_code_related_book(book))
+        for sec in book["sections"]:
+            new_blocks = []
+            for block in sec.get("blocks", []):
+                new_blocks.append(block)
+                if block["type"] == "paragraph" and len(block.get("text", "").split()) > 15:
+                    sentences = re.split(r"(?<=[.!?])\s+", block["text"].strip())
+                    if len(sentences) >= 4:
+                        mid = max(1, len(sentences) // 2)
+                        new_blocks.append(para(" ".join(sentences[mid:])))
+                        block["text"] = " ".join(sentences[:mid])
+            sec["blocks"] = new_blocks
+        # If still too short, duplicate the last section's content
+        if estimate_pages(book) < target_pages - 1 and len(book["sections"]) > 1:
+            last = book["sections"][-1]
+            clone = {
+                "title": last.get("title", "") + " (continued)",
+                "blocks": [dict(b) for b in last.get("blocks", [])],
+            }
+            book["sections"].append(clone)
 
     return book
 

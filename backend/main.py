@@ -452,7 +452,15 @@ with something they can type, run, or apply immediately.
 - Diagrams go in ```mermaid fenced blocks only when they genuinely clarify
   flow, architecture, or state changes. Otherwise skip them.
 
-6. LANGUAGE
+6. MINIMUM CONTENT REQUIREMENTS
+- You MUST generate at least <<TARGET_PAGES>> pages worth of content.
+- For a <<TARGET_PAGES>>-page book: aim for 6-10 sections, each with 4-8 blocks
+  (paragraphs, code, callouts, lists).
+- Every section MUST contain at least 2 paragraphs and 1 code block or diagram.
+- If you finish early, add more examples, exercises, or a case study — never
+  leave a section thin.
+
+7. LANGUAGE
 - Write the whole book in <<LANGUAGE>>.
 - Keep code identifiers, function names, library names, API names, URLs, and
   string literals in English.
@@ -520,6 +528,15 @@ cliffhanger into the next section.]
 ## The Moral of the Story
 [3-5 bullets: the "if you remember nothing else" list, in story words.]
 
+MINIMUM CONTENT REQUIREMENTS
+- You MUST generate at least <<TARGET_PAGES>> pages worth of content.
+- For a <<TARGET_PAGES>>-page book: aim for 6-10 sections, each with 4-8 blocks
+  (paragraphs, callouts, lists, tables).
+- Every section MUST contain at least 3-5 sentences of real explanation plus one
+  concrete example, case study, or exercise.
+- If you finish early, add more examples, personal stories, or practical exercises
+  — never leave a section thin.
+
 DEPTH MUST MATCH <<TARGET_PAGES>> PAGES
 - For 5-10 pages: keep it tight. One strong example per section, no padding.
 - For 11-15 pages: add a second example or a short case study per section.
@@ -528,7 +545,7 @@ DEPTH MUST MATCH <<TARGET_PAGES>> PAGES
 
 HARD RULES
 - Start with the heading directly. No preamble about the chapter.
-- Each section: 2-5 short paragraphs, plus an optional diagram or example.
+- Each section: 3-6 short paragraphs, plus an optional diagram or example.
 - Diagrams go in ```mermaid fenced blocks (flowchart LR/TD, graph LR/TD,
   sequenceDiagram). NEVER ASCII art or text boxes.
 - Any section about a flow, a journey, an order of events, or how pieces fit
@@ -891,14 +908,20 @@ def generate_book_structure(
             f"TARGET: {target_pages} pages.\n"
             "For each section: start with a clear problem statement, then give a "
             "real code example, then explain what it does, then show a real-world "
-            "application. Add extra examples and exercises to fill the page target."
+            "application. Add extra examples and exercises to fill the page target.\n"
+            f"MINIMUM: You MUST generate at least {max(6, target_pages - 2)} sections, "
+            f"each with at least 4-8 blocks (paragraphs, code, callouts). "
+            f"Every section MUST have at least 2 paragraphs and 1 code block."
         )
     else:
         depth_guide = (
             f"TARGET: {target_pages} pages.\n"
             "Focus on specific, concrete examples first. If you need more pages, "
             "add real-world case studies, personal stories, or practical exercises. "
-            "Every section must teach something the reader can apply today."
+            "Every section must teach something the reader can apply today.\n"
+            f"MINIMUM: You MUST generate at least {max(6, target_pages - 2)} sections, "
+            f"each with at least 3-6 paragraphs and 1 example or exercise. "
+            f"Total content MUST fill {target_pages} pages."
         )
 
     user_text = (
@@ -919,6 +942,7 @@ def generate_book_structure(
         parsed = None
     if isinstance(parsed, dict) and isinstance(parsed.get("sections"), list):
         book = _sanitize_book(parsed, template_id, target_pages, content)
+        book = bookmod.adjust_to_page_target(book, {}, target_pages)
         # Generate images for non-programming topics
         if not is_programming:
             book = _generate_images_for_book(book)
