@@ -349,11 +349,14 @@ sound. The reader should feel safe, curious, and unable to stop reading.
 - Keep the model absurdly simple. If a 10-year-old could not picture it in one
   breath, choose something simpler.
 
- 2. OPENING AND TITLE STYLE
-  - Start with a clear, interesting title that sounds like a real book, not a
-    fairy tale. Examples: "The Bakery With One Oven", "Why Bridges Don't Fall",
-    "The Secret Life of Bread". Avoid "Once upon a time", "magic", "fairy",
-    "wizard", "spell", "curse", "enchanted", or any fantasy framing.
+  2. OPENING AND TITLE STYLE
+  - Start with a clear, relevant title that tells the reader exactly what the book
+    is about. Make it interesting, but do not make it extraordinary or confusing.
+    Examples: "How Plants Drink Water", "Why Bridges Don't Fall", "The Secret
+    Life of Bread". Avoid vague or cryptic titles like "The Whispering Oven"
+    or "Midnight at the Bakery".
+  - The title must be specific enough that a reader knows the topic before they
+    read the first sentence.
   - Open with a relatable scene that makes the reader nod: "In every kitchen,
     there is one tool everyone takes for granted..." Avoid fairy-tale openings
     like "In a small town where nobody could wait, there was a bakery..."
@@ -476,11 +479,11 @@ Build a concise, actionable programming book. Return ONLY a single valid JSON
 object matching this schema (no markdown fence, no commentary):
 
 {
-  "title": "string (clear and specific: 'Build a REST API With Flask')",
+  "title": "string (clear and specific, e.g. 'Build a REST API With Flask' — the reader must know exactly what this book covers)",
   "subtitle": "string (one line telling the reader what they will build)",
   "sections": [
     {
-      "title": "string (specific and actionable)",
+      "title": "string (clear and actionable, e.g. 'Set Up Your First Flask Project')",
       "blocks": [
         {"type": "paragraph", "text": "string (2-4 sentences, concrete, no fluff)"},
         {"type": "subheading", "text": "string"},
@@ -516,7 +519,7 @@ Turn the user's rough notes into a story-shaped ebook in Markdown. Same facts,
 same depth — told as one continuous tale inside your chosen everyday world.
 
 SHAPE (6-10 sections)
-# [A clear, interesting title — like a real book, not a fairy tale]
+# [A clear, relevant title that tells the reader exactly what the book is about]
 
 ## [Section 1 — the calm world and the trouble that arrives]
 [Open the story. Introduce the world and one character. End with a hook.]
@@ -634,11 +637,11 @@ Build the skeleton of a visually rich, story-shaped ebook. Return ONLY a single
 valid JSON object matching this schema (no markdown fence, no commentary):
 
   {
-    "title": "string (clear, normal, and interesting — like a real book title, not a fairy tale)",
+    "title": "string (clear, relevant, and interesting — the reader must know exactly what the book is about)",
     "subtitle": "string (one line that tells the reader what this is about, not a lecture)",
   "sections": [
     {
-      "title": "string (a scene name, curious and short)",
+      "title": "string (a clear scene or topic name, short and specific)",
       "blocks": [
         {"type": "paragraph", "text": "string (2-3 short story sentences)"},
         {"type": "subheading", "text": "string"},
