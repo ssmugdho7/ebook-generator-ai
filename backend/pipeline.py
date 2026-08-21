@@ -1432,9 +1432,11 @@ def _section_pages(pdf_path: str, entries) -> Dict[str, int]:
         s = re.sub(r"`([^`]+)`", r"\1", s)
         s = re.sub(r"\*\*([^*]+)\*\*", r"\1", s)
         s = re.sub(r"\*([^*]+)\*", r"\1", s)
+        s = html_lib.unescape(s)
         return re.sub(r"\s+", " ", s).strip()
 
     doc = fitz.open(pdf_path)
+    pages_text = [re.sub(r"\s+", " ", page.get_text()) for page in doc]
     pages_text = [re.sub(r"\s+", " ", page.get_text()) for page in doc]
     toc_idx = next(
         (i for i, txt in enumerate(pages_text) if "Table of Contents" in txt), -1
@@ -1469,6 +1471,7 @@ def _add_outline_and_links(pdf_path: str, entries, page_map: Dict[str, int]) -> 
         s = re.sub(r"`([^`]+)`", r"\1", s)
         s = re.sub(r"\*\*([^*]+)\*\*", r"\1", s)
         s = re.sub(r"\*([^*]+)\*", r"\1", s)
+        s = html_lib.unescape(s)
         return re.sub(r"\s+", " ", s).strip()
 
     doc = fitz.open(pdf_path)
@@ -1601,22 +1604,27 @@ flag = True and (3.14 <= 7)
 
 
 def compile_document_to_pdf(document: str, entries, template: dict = None) -> str:
-    """Render a fully-assembled HTML document to PDF.
+    """Render a fully-assembled HTML document to PDF with working TOC links.
 
-    `entries` is the ordered [(sec-N, title)] list used for the outline.
-    `template` (optional) drives mermaid diagram colors/fonts; when omitted a
-    neutral default is used.
+    Renders the PDF once, then discovers the actual page numbers for each
+    section by searching the rendered text, and finally adds PDF bookmarks
+    plus clickable TOC links that point to the correct pages.
     """
     workdir = pdf_workdir()
     out_path = os.path.join(workdir, f"ebook-{uuid.uuid4().hex[:8]}.pdf")
 
-    # Single-pass render. The TOC will show blank page numbers; this is a
-    # deliberate trade-off to keep generation under ~10s for short books.
     _run_coro(render_pdf("", "Modern Tech Blog", out_path, page_map=None, document=document, template=template))
 
+    # Discover actual section page numbers from the rendered PDF text.
+    page_map: Dict[str, int] = {}
     try:
-        _add_outline_and_links(out_path, entries, {})
-        _verify_toc_pages(out_path, entries, {})
+        page_map = _section_pages(out_path, entries)
+    except Exception as e:
+        print(f"PAGE_MAP_FAIL: {e}")
+
+    try:
+        _add_outline_and_links(out_path, entries, page_map)
+        _verify_toc_pages(out_path, entries, page_map)
     except (ImportError, AttributeError) as e:  # pymupdf is optional
         print(f"POSTPROCESS_SKIP: {e}")
 
