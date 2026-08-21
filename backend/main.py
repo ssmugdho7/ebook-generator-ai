@@ -422,7 +422,17 @@ with something they can type, run, or apply immediately.
 - Use short paragraphs (2-4 sentences). Use bullet lists for steps.
 - Speak directly to the reader as "you".
 
-2. CODE AND EXAMPLES FIRST
+2. USE SIMPLE, DAILY-LIFE EXAMPLES
+- Explain every concept using everyday situations: a grocery list, a coffee
+  order, a bus route, a photo gallery, a to-do list, a bank account, a phone
+  contact list, a recipe, a school timetable, or a WhatsApp group.
+- Never use technical jargon when a common word works. Replace difficult words
+  with simpler synonyms or short explanations.
+- When you introduce a new term, define it immediately in plain language.
+- Every theory paragraph must be paired with a concrete, relatable analogy from
+  daily life.
+
+3. CODE AND EXAMPLES FIRST
 - Show real, runnable code early. Explain what each line does in plain language.
 - After every code block, add a 1-2 sentence explanation of why this works and
   what changes if the reader tweaks it.
@@ -430,7 +440,7 @@ with something they can type, run, or apply immediately.
   setup to working output.
 - For non-code steps, use numbered lists: Step 1, Step 2, Step 3.
 
-3. REAL-WORLD CONTEXT
+4. REAL-WORLD CONTEXT
 - Every concept must answer: "When would I actually use this?" Give one concrete
   scenario from a real product or workflow.
 - Include a "Real-World Example" callout in at least one section per major part
@@ -438,7 +448,7 @@ with something they can type, run, or apply immediately.
 - Add a "Common Pitfall" callout where most beginners get it wrong, and show the
   correct approach.
 
-4. DEPTH MUST MATCH THE PAGE TARGET
+5. DEPTH MUST MATCH THE PAGE TARGET
 - For shorter targets (<<TARGET_PAGES>> pages): focus on the essentials. One
   clear explanation, one solid example, one quick exercise per section.
 - For medium targets: add a second worked example, a comparison table, and a
@@ -446,7 +456,7 @@ with something they can type, run, or apply immediately.
 - For longer targets: include multiple examples, a mini project that builds
   across sections, a troubleshooting guide, and a final review checklist.
 
-5. STRUCTURE
+6. STRUCTURE
 - 6-10 sections. Each section has: a clear heading, 1-2 short introductory
   paragraphs, a code example or diagram, a real-world application, and a quick
   recap.
@@ -455,7 +465,7 @@ with something they can type, run, or apply immediately.
 - Diagrams go in ```mermaid fenced blocks only when they genuinely clarify
   flow, architecture, or state changes. Otherwise skip them.
 
-6. MINIMUM CONTENT REQUIREMENTS
+7. MINIMUM CONTENT REQUIREMENTS
 - You MUST generate at least <<TARGET_PAGES>> pages worth of content.
 - For a <<TARGET_PAGES>>-page book: aim for 6-10 sections, each with 4-8 blocks
   (paragraphs, code, callouts, lists).
@@ -463,7 +473,7 @@ with something they can type, run, or apply immediately.
 - If you finish early, add more examples, exercises, or a case study — never
   leave a section thin.
 
-7. LANGUAGE
+8. LANGUAGE
 - Write the whole book in <<LANGUAGE>>.
 - Keep code identifiers, function names, library names, API names, URLs, and
   string literals in English.
@@ -912,6 +922,10 @@ def generate_book_structure(
             "For each section: start with a clear problem statement, then give a "
             "real code example, then explain what it does, then show a real-world "
             "application. Add extra examples and exercises to fill the page target.\n"
+            "STYLE RULE: Explain every concept using daily-life examples (grocery "
+            "list, coffee order, bus route, photo gallery, to-do list, bank account, "
+            "recipe, school timetable, WhatsApp group). Replace difficult words with "
+            "simpler synonyms. Keep theory short and pair it with a concrete analogy.\n"
             f"MINIMUM: You MUST generate at least {max(6, target_pages - 2)} sections, "
             f"each with at least 4-8 blocks (paragraphs, code, callouts). "
             f"Every section MUST have at least 2 paragraphs and 1 code block."
