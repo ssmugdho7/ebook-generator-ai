@@ -594,6 +594,8 @@ class BookRequest(BaseModel):
 class PreviewRequest(BaseModel):
     book: dict
     template_id: str = "minimal-light"
+    # Optional PNG/JPEG data URL of a client-selected cover; embedded as page 1.
+    cover_image: Optional[str] = None
 
 
 class TranslateRequest(BaseModel):
@@ -612,6 +614,8 @@ class DownloadRequest(BaseModel):
     ebook_id: Optional[str] = None
     # "en" or "bn" — selects which book payload to render (only for `book`)
     language: str = "en"
+    # Optional PNG/JPEG data URL of a client-selected cover; embedded as page 1.
+    cover_image: Optional[str] = None
 
 
 GEMINI_MODEL = "gemini-3.6-flash"
@@ -1355,8 +1359,16 @@ def translate_book(request: TranslateRequest):
 def preview_book(request: PreviewRequest):
     """Render the structured book to styled HTML for the in-app preview."""
     try:
+        if request.cover_image is not None and not bookmod._is_valid_cover_data_url(request.cover_image):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Invalid cover image: expected a PNG/JPEG data URL under 15MB. "
+                    "Re-select or generate a cover and try again."
+                ),
+            )
         template = _load_template(request.template_id)
-        html = bookmod.render_book_preview_html(request.book, template)
+        html = bookmod.render_book_preview_html(request.book, template, cover_image=request.cover_image)
         return {"html": html, "template_id": request.template_id}
     except HTTPException:
         raise
@@ -1376,10 +1388,20 @@ def download_pdf(request: DownloadRequest):
     if request.book:
         started = time.time()
         book_payload = request.book
+        if request.cover_image is not None and not bookmod._is_valid_cover_data_url(request.cover_image):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Invalid cover image: expected a PNG/JPEG data URL under 15MB. "
+                    "Re-select or generate a cover and try again."
+                ),
+            )
         try:
             template = _load_template(request.template_id)
             entries = bookmod.book_entries(book_payload)
-            document = bookmod.render_book_document(book_payload, template, page_map=None)
+            document = bookmod.render_book_document(
+                book_payload, template, page_map=None, cover_image=request.cover_image
+            )
             pdf_path = compile_document_to_pdf(document, entries, template=template)
             # Cleanup temp image files
             bookmod.cleanup_tmp_images(book_payload)

@@ -60,6 +60,8 @@ export default function Home() {
   const [downloadStatus, setDownloadStatus] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [showCoverModal, setShowCoverModal] = useState(false);
+  // Selected client-side cover (PNG data URL) embedded as PDF page 1.
+  const [selectedCover, setSelectedCover] = useState<string | null>(null);
 
   const refreshLibrary = useCallback(async () => {
     try {
@@ -116,9 +118,9 @@ export default function Home() {
     return msg;
   };
 
-  const refreshPreview = useCallback(async (b: Book) => {
+  const refreshPreview = useCallback(async (b: Book, cover?: string | null) => {
     try {
-      const html = await getBookPreview(b, b.template_id);
+      const html = await getBookPreview(b, b.template_id, cover ?? null);
       setPreviewHtml(html);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Preview failed");
@@ -134,6 +136,7 @@ export default function Home() {
     setPreviewHtml("");
     setPageCount(null);
     setShowCoverModal(false);
+    setSelectedCover(null);
     try {
       const res = await generateBook(content, templateId, targetPages, language);
       setBook(res.book);
@@ -147,6 +150,13 @@ export default function Home() {
       setIsGenerating(false);
     }
   }, [content, templateId, targetPages, language, refreshPreview, refreshLibrary]);
+
+  const handleSelectCover = useCallback(async (dataUrl: string) => {
+    setSelectedCover(dataUrl);
+    setShowCoverModal(false);
+    setError(null);
+    if (book) await refreshPreview(book, dataUrl);
+  }, [book, refreshPreview]);
 
   const handleDownload = useCallback(async () => {
     if (!book) return;
@@ -166,10 +176,9 @@ export default function Home() {
         });
       }, 400);
       setDownloadStatus("Compiling PDF…");
-      await downloadBookPdf(book, book.template_id, ebookId, language);
+      await downloadBookPdf(book, book.template_id, ebookId, language, selectedCover);
       setDownloadProgress(100);
       setDownloadStatus("Download complete!");
-      setShowCoverModal(true);
       refreshLibrary();
     } catch (e) {
       setError(friendlyError(e, "PDF download failed"));
@@ -181,7 +190,7 @@ export default function Home() {
         setDownloadStatus("");
       }, 800);
     }
-  }, [book, language, ebookId, refreshPreview, refreshLibrary]);
+  }, [book, language, ebookId, selectedCover, refreshLibrary]);
 
   const handleOpenLibraryItem = useCallback(
     async (item: LibraryItem) => {
@@ -521,19 +530,33 @@ export default function Home() {
                   )}
                 </p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => {
                     setBook(null);
                     setEbookId(null);
                     setPreviewHtml("");
                     setPageCount(null);
+                    setSelectedCover(null);
                     setError(null);
                     refreshLibrary();
                   }}
                   className="rounded-xl border border-card-border bg-background px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-accent/10 hover:text-accent"
                 >
                   Start Over
+                </button>
+                <button
+                  onClick={() => setShowCoverModal(true)}
+                  className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors ${
+                    selectedCover
+                      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
+                      : "border-card-border bg-background text-foreground hover:bg-accent/10 hover:text-accent"
+                  }`}
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M4 4h16v12H4z" />
+                  </svg>
+                  {selectedCover ? "Change Cover" : "Choose Cover"}
                 </button>
                 <button
                   onClick={handleDownload}
@@ -597,6 +620,7 @@ export default function Home() {
           subtitle={book.subtitle || ""}
           template={templates.find((t) => t.id === book.template_id) ?? null}
           onClose={() => setShowCoverModal(false)}
+          onSelect={handleSelectCover}
         />
       )}
       <DownloadProgressModal

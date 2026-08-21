@@ -7,6 +7,7 @@ This is the heart of the "generate an outline, then edit it" flow:
 - page count is verified against the real renderer and auto-adjusted
 """
 
+import base64
 import html as html_lib
 import json
 import math
@@ -437,18 +438,85 @@ def book_entries(book) -> list:
     return [(f"sec-{i}", sec["title"]) for i, sec in enumerate(book_sections(book), start=1)]
 
 
-def render_book_document(book: dict, template: dict, page_map: dict = None) -> str:
-    """Assemble the full styled HTML document for a book (for the PDF renderer)."""
+# Full-bleed cover image page. The selected client-side cover PNG becomes the
+# first page of the PDF; `object-fit: cover` scales it uniformly (no stretch /
+# distortion) and crops only the thinnest of edges so it always fills A4.
+COVER_IMG_CSS = """
+@page cover-img { size: A4; margin: 0; @top-center { content: none; } @bottom-center { content: none; } }
+.cover-img { page: cover-img; margin: 0; padding: 0; width: 210mm; height: 297mm; overflow: hidden; background: #ffffff; }
+.cover-img .cover-img-img { display: block; width: 210mm; height: 297mm; object-fit: cover; }
+.cover-img .sr-title { string-set: chap-title content(); position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+"""
+
+
+def _is_valid_cover_data_url(value: str) -> bool:
+    """Reject anything that is not a small, well-formed PNG/JPEG data URL so a
+    malformed cover can never silently ship as a blank page 1."""
+    if not isinstance(value, str):
+        return False
+    if len(value) > 15 * 1024 * 1024:  # 15MB hard cap (base64)
+        return False
+    if not value.startswith(("data:image/png;base64,", "data:image/jpeg;base64,")):
+        return False
+    payload = value.split(",", 1)[1]
+    try:
+        decoded = base64.b64decode(payload, validate=True)
+    except Exception:
+        return False
+    # Magic-byte sanity check on the decoded image.
+    if decoded[:4] == b"\x89PNG" and decoded[4:8] == b"\x0d\x0a\x1a\x0a":
+        return True
+    if decoded[:3] == b"\xff\xd8\xff":  # JPEG
+        return True
+    return False
+
+
+def _cover_block(title: str, subtitle: str, cover_image: str = None) -> str:
+    """Page 1 of the ebook. When a cover image is provided it is embedded as a
+    full-bleed image; otherwise the traditional text title page is used."""
+    if cover_image:
+        src = html_lib.escape(cover_image, quote=True)
+        # Off-screen <h1> keeps the running header (chap-title) populated so the
+        # body pages still show the title — exactly as the text cover does.
+        return (
+            '<div class="cover-img">'
+            f'<h1 class="sr-title">{_inline(title)}</h1>'
+            f'<img class="cover-img-img" src="{src}" alt="Cover" />'
+            "</div>"
+        )
+    return (
+        '<div class="cover">'
+        f'<h1 class="chapter-title">{_inline(title)}</h1>'
+        f'<p class="cover-sub">{html_lib.escape(subtitle) if subtitle else "A story you can finish in one sitting"}</p>'
+        "</div>"
+    )
+
+
+def render_book_document(book: dict, template: dict, page_map: dict = None, cover_image: str = None) -> str:
+    """Assemble the full styled HTML document for a book (for the PDF renderer).
+
+    `cover_image` is an optional PNG/JPEG data URL produced by the client-side
+    cover generator. When present it becomes page 1 of the final PDF.
+    """
     from templates import build_template_css, template_pygments_css
 
     title = book.get("title", "Ebook")
     subtitle = book.get("subtitle", "")
-    
+
+    # Validate before we build anything: a bad cover must fail loudly, never
+    # ship a coverless PDF back to the user.
+    if cover_image is not None:
+        if not _is_valid_cover_data_url(cover_image):
+            raise ValueError(
+                "Invalid cover image: expected a PNG/JPEG data URL under 15MB. "
+                "Re-select or generate a cover and try again."
+            )
+
     # Track temp image files for cleanup
     _tmp_images = []
     body_html = render_sections(book_sections(book), _tmp_images)
     bengali = _needs_bengali_font(book)
-    
+
     # Store temp files in book for cleanup later
     book["_tmp_images"] = _tmp_images
 
@@ -461,6 +529,7 @@ def render_book_document(book: dict, template: dict, page_map: dict = None) -> s
             f'<span class="toc-pg">{page}</span></li>'
         )
 
+    extra_css = COVER_IMG_CSS if cover_image else ""
     return f"""<!DOCTYPE html>
 <html lang="{'bn' if bengali else 'en'}">
 <head>
@@ -469,13 +538,11 @@ def render_book_document(book: dict, template: dict, page_map: dict = None) -> s
 <style>
 {template_pygments_css(template)}
 {build_template_css(template, bengali=bengali)}
+{extra_css}
 </style>
 </head>
 <body>
-  <div class="cover">
-    <h1 class="chapter-title">{_inline(title)}</h1>
-    <p class="cover-sub">{html_lib.escape(subtitle) if subtitle else "A story you can finish in one sitting"}</p>
-  </div>
+  {_cover_block(title, subtitle, cover_image)}
   <div class="toc">
     <h2>Table of Contents</h2>
     <ol>{''.join(toc_items)}</ol>
@@ -496,9 +563,22 @@ def cleanup_tmp_images(book: dict) -> None:
             pass
 
 
-def render_book_preview_html(book: dict, template: dict) -> str:
-    """HTML fragment for the live in-app preview (no page numbers needed)."""
+def render_book_preview_html(book: dict, template: dict, cover_image: str = None) -> str:
+    """HTML fragment for the live in-app preview (no page numbers needed).
+
+    `cover_image` is an optional PNG/JPEG data URL; when present it is shown at
+    the top of the preview so the reader sees the cover as part of the ebook.
+    """
     from templates import build_template_css, template_pygments_css
+
+    cover_html = ""
+    if cover_image:
+        src = html_lib.escape(cover_image, quote=True)
+        cover_html = (
+            '<div class="preview-cover">'
+            f'<img src="{src}" alt="Cover" />'
+            "</div>"
+        )
 
     body = render_sections(book_sections(book))
 
@@ -548,9 +628,12 @@ body {{ padding: 24px; background: {template['palette']['page_bg']}; }}
 .preview-toc li {{ margin: 6px 0; }}
 .preview-toc a {{ color: {template['palette'].get('accent', '#2563eb')}; text-decoration: underline; text-underline-offset: 3px; }}
 .preview-toc a:hover {{ opacity: 0.8; }}
+.preview-cover {{ margin: 0 0 24px; text-align: center; }}
+.preview-cover img {{ display: block; margin: 0 auto; width: auto; max-width: 100%; max-height: 60vh; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); }}
 </style>
 </head>
 <body>
+  {cover_html}
   <h1 class="chapter-title" style="margin-top:0">{_inline(book.get('title', ''))}</h1>
   {f'<div class="preview-toc"><h2>Table of Contents</h2><ol>{toc_html}</ol></div>' if toc_html else ''}
   {body}

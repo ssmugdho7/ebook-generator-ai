@@ -168,11 +168,13 @@ export async function translateBook(
 
 export async function getBookPreview(
   book: Book,
-  templateId: string
+  templateId: string,
+  coverImage?: string | null
 ): Promise<string> {
   const data = await postJson<{ html: string }>("/api/preview", {
     book,
     template_id: templateId,
+    cover_image: coverImage ?? null,
   });
   return data.html;
 }
@@ -181,7 +183,8 @@ export async function downloadBookPdf(
   book: Book,
   templateId: string,
   ebookId?: string | null,
-  language: "en" | "bn" = "en"
+  language: "en" | "bn" = "en",
+  coverImage?: string | null
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/api/download-pdf`, {
     method: "POST",
@@ -191,6 +194,7 @@ export async function downloadBookPdf(
       template_id: templateId,
       ebook_id: ebookId ?? null,
       language,
+      cover_image: coverImage ?? null,
     }),
   });
 

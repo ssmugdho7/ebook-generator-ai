@@ -22,6 +22,7 @@ interface CoverGeneratorProps {
   subtitle?: string;
   template?: TemplateInfo | null;
   onClose: () => void;
+  onSelect?: (coverDataUrl: string) => void;
 }
 
 const NONE = "__none__";
@@ -35,6 +36,7 @@ export default function CoverGenerator({
   subtitle,
   template,
   onClose,
+  onSelect,
 }: CoverGeneratorProps) {
   const palette: CoverPalette = useMemo(
     () =>
@@ -103,7 +105,7 @@ export default function CoverGenerator({
         failed: result.checks.filter((c) => !c.ok).map((c) => c.label),
       });
       try {
-        const canvas = await rasterizeCover(result.svg, result.width, result.height, 1000);
+        const canvas = await rasterizeCover(result.svg, result.width, result.height, 1600);
         if (token === renderToken.current) setPreview(dataUrlOf(canvas));
       } catch {
         /* preview rasterization failed; keep previous */
@@ -297,6 +299,18 @@ export default function CoverGenerator({
                   : `Contrast issues: ${checks.failed.join(", ")}`}
               </span>
             </div>
+            {onSelect && (
+              <button
+                onClick={() => preview && onSelect(preview)}
+                disabled={!preview}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-accent/40 bg-accent/10 px-4 py-3 text-sm font-semibold text-accent transition-all hover:bg-accent/20 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Use this cover
+              </button>
+            )}
             <button
               onClick={handleDownload}
               disabled={downloading}
