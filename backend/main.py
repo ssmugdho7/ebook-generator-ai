@@ -1107,9 +1107,8 @@ def generate_book(request: BookRequest):
     if not request.content.strip():
         raise HTTPException(status_code=400, detail="Content cannot be empty")
     _require_keys()
-    # "both" = English primary + a Bengali translation; "bn" = Bengali only;
-    # anything else (including "en") = English only.
-    language = request.language if request.language in ("en", "bn", "both") else "en"
+    # "en" only or "bn" only.
+    language = request.language if request.language in ("en", "bn") else "en"
     template = _load_template(request.template_id)
     started = time.time()
     try:
@@ -1117,23 +1116,13 @@ def generate_book(request: BookRequest):
         book = generate_book_structure(
             request.content, request.template_id, request.target_pages, lang=primary_lang
         )
-        # Page-count verification is intentionally skipped here to keep
-        # generation fast. The download render will produce the final PDF
-        # in a single pass; the TOC will show blank page numbers rather
-        # than burning an extra ~10-20s per render during generation.
         pages = bookmod.estimate_pages(book)
-        book_bn = None
-        if language == "both":
-            book_bn = translate_book_structure(
-                book, "bn", request.template_id, request.target_pages
-            )
         ebook_id = db.save_ebook(
             book=book,
             template_id=request.template_id,
             target_pages=request.target_pages,
             page_count=pages,
             source_content=request.content,
-            book_bn=book_bn,
         )
         db.log_event(
             "generate-book",
@@ -1144,7 +1133,6 @@ def generate_book(request: BookRequest):
         )
         return {
             "book": book,
-            "book_bn": book_bn,
             "page_count": pages,
             "target_pages": request.target_pages,
             "template_id": request.template_id,
@@ -1175,7 +1163,7 @@ def translate_book(request: TranslateRequest):
     if not request.book:
         raise HTTPException(status_code=400, detail="No book provided")
     _require_keys()
-    if request.language not in ("bn", "both"):
+    if request.language != "bn":
         raise HTTPException(status_code=400, detail="Only translation into Bengali is supported")
     try:
         translated = translate_book_structure(
@@ -1220,10 +1208,7 @@ def download_pdf(request: DownloadRequest):
     # (Playwright) and must not block the event loop for other requests.
     if request.book:
         started = time.time()
-        # For a Bengali PDF, prefer the already-translated book when present.
         book_payload = request.book
-        if request.language == "bn" and isinstance(request.book.get("book_bn"), dict):
-            book_payload = request.book["book_bn"]
         try:
             template = _load_template(request.template_id)
             entries = bookmod.book_entries(book_payload)

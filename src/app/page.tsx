@@ -10,14 +10,12 @@ import {
   generateBook,
   getBookPreview,
   downloadBookPdf,
-  translateBook,
   getLibrary,
   getLibraryBook,
   downloadStoredPdf,
   deleteLibraryItem,
   type TemplateInfo,
   type Book,
-  type TranslatedBook,
   type EbookLanguage,
   type LibraryItem,
 } from "@/lib/api";
@@ -27,7 +25,6 @@ const PAGE_COUNTS = [5, 10, 15, 20];
 const LANGUAGES: { id: EbookLanguage; label: string }[] = [
   { id: "en", label: "English" },
   { id: "bn", label: "বাংলা (Bengali)" },
-  { id: "both", label: "Both (English + Bengali)" },
 ];
 
 const SAMPLE_CONTENT = `# React Hooks Deep Dive
@@ -50,11 +47,8 @@ export default function Home() {
   const [previewHtml, setPreviewHtml] = useState("");
   const [pageCount, setPageCount] = useState<number | null>(null);
 
-  // Language: which version(s) to produce, and which one is on screen.
+  // Language: which version to produce.
   const [language, setLanguage] = useState<EbookLanguage>("en");
-  const [bookBn, setBookBn] = useState<TranslatedBook | null>(null);
-  const [activeLang, setActiveLang] = useState<"en" | "bn">("en");
-  const [isTranslating, setIsTranslating] = useState(false);
 
   const [library, setLibrary] = useState<LibraryItem[]>([]);
   const [libraryEnabled, setLibraryEnabled] = useState(false);
@@ -136,20 +130,16 @@ export default function Home() {
     setIsGenerating(true);
     setError(null);
     setBook(null);
-    setBookBn(null);
     setEbookId(null);
     setPreviewHtml("");
     setPageCount(null);
-    setActiveLang(language === "bn" ? "bn" : "en");
+    setShowCoverModal(false);
     try {
       const res = await generateBook(content, templateId, targetPages, language);
-      // The primary book is English unless the user asked for Bengali-only.
-      const primary = language === "bn" ? (res.book_bn ?? res.book) : res.book;
-      setBook(primary);
-      setBookBn(res.book_bn ?? null);
+      setBook(res.book);
       setEbookId(res.ebook_id ?? null);
       setPageCount(res.page_count);
-      await refreshPreview(primary);
+      await refreshPreview(res.book);
       refreshLibrary();
     } catch (e) {
       setError(friendlyError(e, "Generation failed"));
@@ -175,20 +165,8 @@ export default function Home() {
           return p + Math.random() * 15;
         });
       }, 400);
-      if (activeLang === "bn" && !bookBn) {
-        setIsTranslating(true);
-        setDownloadStatus("Translating to Bengali…");
-        try {
-          const t = await translateBook(book, book.template_id, book.target_pages);
-          setBookBn(t.book);
-          await refreshPreview(t.book);
-        } finally {
-          setIsTranslating(false);
-        }
-      }
       setDownloadStatus("Compiling PDF…");
-      const source = activeLang === "bn" ? (bookBn ?? book) : book;
-      await downloadBookPdf(source, source.template_id, ebookId, activeLang);
+      await downloadBookPdf(book, book.template_id, ebookId, language);
       setDownloadProgress(100);
       setDownloadStatus("Download complete!");
       setShowCoverModal(true);
@@ -203,7 +181,7 @@ export default function Home() {
         setDownloadStatus("");
       }, 800);
     }
-  }, [book, bookBn, activeLang, ebookId, refreshPreview, refreshLibrary]);
+  }, [book, language, ebookId, refreshPreview, refreshLibrary]);
 
   const handleOpenLibraryItem = useCallback(
     async (item: LibraryItem) => {
@@ -212,10 +190,8 @@ export default function Home() {
       try {
         const entry = await getLibraryBook(item.id);
         setBook(entry.book);
-        setBookBn((entry as { book_bn?: TranslatedBook | null }).book_bn ?? null);
         setEbookId(entry.id);
         setPageCount(entry.page_count ?? null);
-        setActiveLang("en");
         setTemplateId(entry.book.template_id);
         await refreshPreview(entry.book);
       } catch (e) {
@@ -255,30 +231,6 @@ export default function Home() {
   );
 
   const handleLoadSample = useCallback(() => setContent(SAMPLE_CONTENT), []);
-
-  const handleSwitchLang = useCallback(
-    async (lang: "en" | "bn") => {
-      if (lang === activeLang) return;
-      // Need a Bengali version on screen but don't have one yet? Translate now.
-      if (lang === "bn" && !bookBn && book) {
-        setIsTranslating(true);
-        setError(null);
-        try {
-          const t = await translateBook(book, book.template_id, book.target_pages);
-          setBookBn(t.book);
-        } catch (e) {
-          setError(friendlyError(e, "Translation failed"));
-          return;
-        } finally {
-          setIsTranslating(false);
-        }
-      }
-      setActiveLang(lang);
-      const source = lang === "bn" ? (bookBn ?? book) : book;
-      if (source) await refreshPreview(source);
-    },
-    [activeLang, bookBn, book, refreshPreview]
-  );
 
   const step = book ? 3 : 2;
 
@@ -372,9 +324,8 @@ export default function Home() {
                   Language
                 </h2>
                 <p className="mb-3 text-xs text-text-muted">
-                  Write the story in English, Bengali (বাংলা), or both. Code and
-                  identifiers stay English; only the story is translated. For
-                  programming topics, code comments may be in Bengali.
+                  Write the story in English or Bengali (বাংলা). Code and
+                  identifiers stay English; only the story is translated.
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {LANGUAGES.map((l) => (
@@ -571,39 +522,12 @@ export default function Home() {
                 </p>
               </div>
               <div className="flex gap-2">
-                {bookBn && (
-                  <div className="flex overflow-hidden rounded-xl border border-card-border">
-                    <button
-                      onClick={() => handleSwitchLang("en")}
-                      className={`px-3 py-2.5 text-sm font-medium transition-colors ${
-                        activeLang === "en"
-                          ? "bg-accent/15 text-accent"
-                          : "bg-background text-text-muted hover:text-foreground"
-                      }`}
-                    >
-                      English
-                    </button>
-                    <button
-                      onClick={() => handleSwitchLang("bn")}
-                      disabled={isTranslating}
-                      className={`px-3 py-2.5 text-sm font-medium transition-colors ${
-                        activeLang === "bn"
-                          ? "bg-accent/15 text-accent"
-                          : "bg-background text-text-muted hover:text-foreground"
-                      }`}
-                    >
-                      {isTranslating ? "Translating…" : "বাংলা"}
-                    </button>
-                  </div>
-                )}
                 <button
                   onClick={() => {
                     setBook(null);
-                    setBookBn(null);
                     setEbookId(null);
                     setPreviewHtml("");
                     setPageCount(null);
-                    setActiveLang("en");
                     setError(null);
                     refreshLibrary();
                   }}
@@ -625,7 +549,7 @@ export default function Home() {
                       <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
-                      {activeLang === "bn" ? "Download Bengali PDF" : "Download PDF"}
+                      Download PDF
                     </>
                   )}
                 </button>
@@ -670,7 +594,7 @@ export default function Home() {
       {showCoverModal && book && (
         <CoverGenerator
           title={book.title}
-          subtitle={(activeLang === "bn" ? (bookBn?.subtitle ?? book.subtitle) : book.subtitle) || ""}
+          subtitle={book.subtitle || ""}
           template={templates.find((t) => t.id === book.template_id) ?? null}
           onClose={() => setShowCoverModal(false)}
         />

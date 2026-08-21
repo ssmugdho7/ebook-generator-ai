@@ -1506,12 +1506,18 @@ def _add_outline_and_links(pdf_path: str, entries, page_map: Dict[str, int]) -> 
 
 
 def _verify_toc_pages(pdf_path: str, entries, page_map: Dict[str, int]) -> None:
-    """Confirm displayed TOC page numbers still match final pagination."""
+    """Confirm displayed TOC page numbers still match final pagination.
+
+    In single-pass mode `page_map` may be empty, in which case there are no
+    page numbers to verify and we skip the check entirely.
+    """
+    if not page_map:
+        return
     actual = _section_pages(pdf_path, entries)
     mismatches = [
         (sid, page_map.get(sid), actual[sid])
         for sid, _ in entries
-        if page_map.get(sid) != actual[sid]
+        if page_map.get(sid) not in (None, actual[sid])
     ]
     if mismatches:
         raise ValueError(f"TOC page numbers are stale: {mismatches}")

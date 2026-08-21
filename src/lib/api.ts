@@ -108,10 +108,7 @@ export interface Book {
   }[];
 }
 
-/** A book translated into another language (e.g. Bengali). Same shape as Book. */
-export type TranslatedBook = Book;
-
-export type EbookLanguage = "en" | "bn" | "both";
+export type EbookLanguage = "en" | "bn";
 
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -142,7 +139,6 @@ export async function generateBook(
   language: EbookLanguage = "en"
 ): Promise<{
   book: Book;
-  book_bn?: TranslatedBook | null;
   page_count: number;
   target_pages: number;
   language: EbookLanguage;
@@ -161,7 +157,7 @@ export async function translateBook(
   templateId: string,
   targetPages: number,
   language: "bn" = "bn"
-): Promise<{ book: TranslatedBook; language: "bn"; template_id: string }> {
+): Promise<{ book: Book; language: "bn"; template_id: string }> {
   return postJson("/api/translate-book", {
     book,
     template_id: templateId,
@@ -221,7 +217,6 @@ export interface LibraryItem {
   created_at: string | null;
   has_pdf: boolean;
   pdf_bytes: number | null;
-  book_bn?: TranslatedBook | null;
 }
 
 export async function getLibrary(
