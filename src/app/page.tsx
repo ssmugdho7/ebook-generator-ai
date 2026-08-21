@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect } from "react";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import CoverGenerator from "@/components/CoverGenerator";
 import DownloadProgressModal from "@/components/DownloadProgressModal";
+import GenerateProgressModal from "@/components/GenerateProgressModal";
 import {
   getTemplates,
   generateBook,
@@ -679,6 +680,7 @@ export default function Home() {
         progress={Math.min(downloadProgress, 100)}
         status={downloadStatus}
       />
+      <GenerateProgressModal isOpen={isGenerating} />
     </div>
   );
 }

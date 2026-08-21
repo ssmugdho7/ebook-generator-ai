@@ -50,6 +50,9 @@ CHROMIUM_ARGS = [
     "--allow-file-access-from-files",
 ]
 
+_cached_browser = None
+_cached_playwright = None
+
 
 def pdf_workdir() -> str:
     """Directory for intermediate/output PDFs.
@@ -1087,6 +1090,7 @@ async def render_pdf(
     page_map: Dict[str, int] = None,
     document: str = None,
     template: dict = None,
+    browser=None,
 ) -> str:
     """Render the final styled PDF. Returns output path.
 
@@ -1095,6 +1099,9 @@ async def render_pdf(
     document from markdown+theme. When `template` is provided, mermaid
     diagrams are themed from that template's palette (colors, fonts) instead
     of a hardcoded default.
+
+    If `browser` is given, it is reused instead of launching a new Chromium
+    instance. The caller remains responsible for closing it.
     """
     document = document or build_document(markdown_text, theme_key, page_map)
     template = template or {}
@@ -1111,304 +1118,281 @@ async def render_pdf(
     tmvars_json = _json.dumps(tmvars)
     colors_json = _json.dumps(fallback_colors)
 
-    async with async_playwright() as p:
+    owns_browser = browser is None
+    if browser is None:
+        p = await async_playwright().__aenter__()
         browser = await p.chromium.launch(args=CHROMIUM_ARGS)
-        try:
-            page = await browser.new_page()
-            await page.set_content(document, wait_until="load")
-            # inject mermaid and render diagrams into real SVG
-            await page.add_script_tag(content=mermaid_js)
-            js = r"""(async () => {
-              if (!window.mermaid) return;
-               mermaid.initialize({ startOnLoad: false, theme: 'base',
-                                    securityLevel: 'loose',
-                                    flowchart: { htmlLabels: true, useMaxWidth: false, curve: 'cardinal', padding: 15 },
-                                    themeVariables: __TMRVARS__ });
-              const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;')
-                                 .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-              const buildFallbackSvg = (id, src) => {
-                const labels = [];
-                const re = /[A-Za-z0-9_-]+[\[({]([^\])\}]*)[\])\}]/g;
-                let m;
-                while ((m = re.exec(src))) {
-                  let l = (m[1] || '').replace(/<br\s*\/?>/gi, ' ')
-                                      .replace(/<[^>]*>/g, ' ')
-                                      .replace(/[{}[\]()"|`<>]/g, ' ')
-                                      .replace(/\s+/g, ' ').trim().slice(0, 120);
-                  if (l && !labels.includes(l)) labels.push(l);
-                }
-                while (labels.length < 2) {
-                  labels.push(['Core Concept', 'Implementation', 'Key Takeaways'][labels.length]);
-                }
-                labels.length = Math.min(labels.length, 5);
-                const colors = __COLORS__;
-                // measure real text width so boxes auto-size instead of clipping
-                const measure = document.createElement('canvas').getContext('2d');
-                measure.font = '600 13px Inter, system-ui, sans-serif';
-                const wordWidth = (word) => measure.measureText(word).width;
-                const hardBreak = (word, maxW) => {
-                  const res = []; let cur = '';
-                  for (const ch of word) {
-                    if (cur && wordWidth(cur + ch) > maxW) { res.push(cur); cur = ch; }
-                    else cur += ch;
-                  }
-                  if (cur) res.push(cur);
-                  return res.length ? res : [word];
-                };
-                const wrap = (text, maxW) => {
-                  const lines = []; let cur = '';
-                  for (const w of text.split(' ')) {
-                    if (wordWidth(w) > maxW) {
-                      if (cur) lines.push(cur);
-                      cur = '';
-                      const pieces = hardBreak(w, maxW);
-                      for (const p of pieces) {
-                        if (cur) { lines.push(cur); }
-                        cur = p;
-                      }
-                      continue;
-                    }
-                    const t = cur ? cur + ' ' + w : w;
-                    if (cur && wordWidth(t) > maxW) { lines.push(cur); cur = w; }
-                    else cur = t;
-                  }
+    try:
+        page = await browser.new_page()
+        await page.set_content(document, wait_until="load")
+        # inject mermaid and render diagrams into real SVG
+        await page.add_script_tag(content=mermaid_js)
+        js = r"""(async () => {
+          if (!window.mermaid) return;
+           mermaid.initialize({ startOnLoad: false, theme: 'base',
+                                securityLevel: 'loose',
+                                flowchart: { htmlLabels: true, useMaxWidth: false, curve: 'cardinal', padding: 15 },
+                                themeVariables: __TMRVARS__ });
+          const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                             .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+          const buildFallbackSvg = (id, src) => {
+            const labels = [];
+            const re = /[A-Za-z0-9_-]+[\[({]([^\])\}]*)[\])\}]/g;
+            let m;
+            while ((m = re.exec(src))) {
+              let l = (m[1] || '').replace(/<br\s*\/?>/gi, ' ')
+                                  .replace(/<[^>]*>/g, ' ')
+                                  .replace(/[{}[\]()"|`<>]/g, ' ')
+                                  .replace(/\s+/g, ' ').trim().slice(0, 120);
+              if (l && !labels.includes(l)) labels.push(l);
+            }
+            while (labels.length < 2) {
+              labels.push(['Core Concept', 'Implementation', 'Key Takeaways'][labels.length]);
+            }
+            labels.length = Math.min(labels.length, 5);
+            const colors = __COLORS__;
+            // measure real text width so boxes auto-size instead of clipping
+            const measure = document.createElement('canvas').getContext('2d');
+            measure.font = '600 13px Inter, system-ui, sans-serif';
+            const wordWidth = (word) => measure.measureText(word).width;
+            const hardBreak = (word, maxW) => {
+              const res = []; let cur = '';
+              for (const ch of word) {
+                if (cur && wordWidth(cur + ch) > maxW) { res.push(cur); cur = ch; }
+                else cur += ch;
+              }
+              if (cur) res.push(cur);
+              return res.length ? res : [word];
+            };
+            const wrap = (text, maxW) => {
+              const lines = []; let cur = '';
+              for (const w of text.split(' ')) {
+                if (wordWidth(w) > maxW) {
                   if (cur) lines.push(cur);
-                  return lines.length ? lines : [''];
-                };
-                const maxW = 200, minW = 150, gap = 48, lineH = 18;
-                const padX = 24, padY = 20, topPad = 18, botPad = 18;
-                const rows = labels.map((lab) => {
-                  const lines = wrap(lab, maxW - 24);
-                  const widest = lines.reduce((a, ln) => Math.max(a, wordWidth(ln)), 0);
-                  const w = Math.min(maxW, Math.max(minW, widest + 24));
-                  const h = lines.length * lineH + topPad + botPad;
-                  return { lines, w, h };
-                });
-                const totalW = rows.reduce((a, r) => a + r.w, 0) + (rows.length - 1) * gap + padX * 2;
-                const H = rows.reduce((a, r) => Math.max(a, r.h), 0) + padY * 2;
-                const mid = H / 2, aid = 'a' + id.replace(/[^a-zA-Z0-9]/g, '');
-                let svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + totalW + '" height="' + H +
-                          '" viewBox="0 0 ' + totalW + ' ' + H + '" font-family="Inter, system-ui, sans-serif">';
-                svg += '<defs><marker id="' + aid + '" markerWidth="12" markerHeight="12" refX="10" refY="4" ' +
-                       'orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,8 L10,4 z" fill="#64748b"/></marker></defs>';
-                let x = padX;
-                rows.forEach((r, i) => {
-                  const c = colors[i % colors.length];
-                  const y = mid - r.h / 2;
-                  svg += '<rect x="' + x + '" y="' + y + '" width="' + r.w + '" height="' + r.h +
-                         '" rx="10" fill="' + c.fill + '" stroke="' + c.stroke + '" stroke-width="2"/>';
-                  r.lines.forEach((ln, j) => {
-                    svg += '<text x="' + (x + r.w / 2) + '" y="' + (y + topPad + lineH * (j + 0.5)) +
-                           '" text-anchor="middle" dominant-baseline="middle" font-size="13" font-weight="600" fill="' +
-                           c.text + '">' + esc(ln) + '</text>';
+                  cur = '';
+                  const pieces = hardBreak(w, maxW);
+                  for (const p of pieces) {
+                    if (cur) { lines.push(cur); }
+                    cur = p;
+                  }
+                  continue;
+                }
+                const t = cur ? cur + ' ' + w : w;
+                if (cur && wordWidth(t) > maxW) { lines.push(cur); cur = w; }
+                else cur = t;
+              }
+              if (cur) lines.push(cur);
+              return lines.length ? lines : [''];
+            };
+            const maxW = 200, minW = 150, gap = 48, lineH = 18;
+            const padX = 24, padY = 20, topPad = 18, botPad = 18;
+            const rows = labels.map((lab) => {
+              const lines = wrap(lab, maxW - 24);
+              const widest = lines.reduce((a, ln) => Math.max(a, wordWidth(ln)), 0);
+              const w = Math.min(maxW, Math.max(minW, widest + 24));
+              const h = lines.length * lineH + topPad + botPad;
+              return { lines, w, h };
+            });
+            const totalW = rows.reduce((a, r) => a + r.w, 0) + (rows.length - 1) * gap + padX * 2;
+            const H = rows.reduce((a, r) => Math.max(a, r.h), 0) + padY * 2;
+            const mid = H / 2, aid = 'a' + id.replace(/[^a-zA-Z0-9]/g, '');
+            let svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + totalW + '" height="' + H +
+                      '" viewBox="0 0 ' + totalW + ' ' + H + '" font-family="Inter, system-ui, sans-serif">';
+            svg += '<defs><marker id="' + aid + '" markerWidth="12" markerHeight="12" refX="10" refY="4" ' +
+                   'orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,8 L10,4 z" fill="#64748b"/></marker></defs>';
+            let x = padX;
+            rows.forEach((r, i) => {
+              const c = colors[i % colors.length];
+              const y = mid - r.h / 2;
+              svg += '<rect x="' + x + '" y="' + y + '" width="' + r.w + '" height="' + r.h +
+                     '" rx="10" fill="' + c.fill + '" stroke="' + c.stroke + '" stroke-width="2"/>';
+              r.lines.forEach((ln, j) => {
+                svg += '<text x="' + (x + r.w / 2) + '" y="' + (y + topPad + lineH * (j + 0.5)) +
+                       '" text-anchor="middle" dominant-baseline="middle" font-size="13" font-weight="600" fill="' +
+                       c.text + '">' + esc(ln) + '</text>';
+              });
+              if (i > 0) {
+                svg += '<line x1="' + (x - gap + 4) + '" y1="' + mid + '" x2="' + (x - 4) + '" y2="' + mid +
+                       '" stroke="#94a3b8" stroke-width="2" marker-end="url(#' + aid + ')"/>';
+              }
+              x += r.w + gap;
+            });
+            return svg + '</svg>';
+          };
+          const els = Array.from(document.querySelectorAll('pre.mermaid'));
+          for (const el of els) {
+            const def = el.textContent.trim();
+            if (!def) { el.innerHTML = buildFallbackSvg(el.id, 'Concept'); continue; }
+            let svg = '';
+            try {
+              const r = await mermaid.render('svg-' + el.id, def);
+              svg = r.svg || '';
+            } catch (e) {
+              svg = '';
+            }
+            // Check for error patterns - be specific to avoid false positives
+            const hasSyntaxError = /syntax\s+error/i.test(svg);
+            const hasMermaidVersion = /mermaid\s+version/i.test(svg);
+            const hasParseError = /parse\s+error/i.test(svg);
+            const hasRenderError = /error\s+rendering/i.test(svg);
+            // Check doubled chars only in visible text (strip all tags + attrs to avoid CSS/filter hex color false positives)
+            const svgVisibleText = svg.replace(/<[^>]*>/g, '').replace(/#[0-9a-fA-F]{4,}/gi, '').replace(/hsl\([^)]*\)/gi, '');
+            const hasDoubledChars = /(\w)\1{3,}/.test(svgVisibleText);
+            const textCount = (svg.match(/<text/g) || []).length;
+            const rectCount = (svg.match(/<rect/g) || []).length;
+            // Error if: specific error text, doubled chars in text, or no shapes at all
+            const bad = hasSyntaxError || hasMermaidVersion || hasParseError || hasRenderError || hasDoubledChars || !svg || (rectCount === 0 && textCount > 5);
+            el.innerHTML = bad ? buildFallbackSvg(el.id, def) : svg;
+            // mermaid.render leaves its temp container div (id 'svg-<el.id>')
+            // in the body holding the error graphic; remove it so a "Syntax
+            // error in text" block never leaks into the rendered page.
+            const mermaidTemp = document.getElementById('svg-' + el.id);
+            if (mermaidTemp && !mermaidTemp.contains(el)) mermaidTemp.remove();
+          }
+          // Fix mermaid viewBox clipping: expand viewBox to cover all content
+          for (const el of Array.from(document.querySelectorAll('pre.mermaid svg'))) {
+            try {
+              const bbox = el.getBBox();
+              const vb = el.getAttribute('viewBox');
+              if (!vb) continue;
+              const parts = vb.split(/[\s,]+/).map(Number);
+              const vx = parts[0], vy = parts[1], vw = parts[2], vh = parts[3];
+              let newVx = Math.min(vx, bbox.x - 5);
+              let newVy = Math.min(vy, bbox.y - 5);
+              let newVw = Math.max(vw, bbox.x + bbox.width + 10 - newVx);
+              let newVh = Math.max(vh, bbox.y + bbox.height + 10 - newVy);
+              if (newVx < vx || newVy < vy || newVw > vw || newVh > vh) {
+                el.setAttribute('viewBox', newVx + ' ' + newVy + ' ' + newVw + ' ' + newVh);
+              }
+            } catch(e) {}
+          }
+          // ---- Overflow safety net: any label wider than its box gets
+          // wrapped at the box width so text is never clipped, regardless of
+          // how long a generated label is. Runs on every diagram type
+          // (flowcharts, comparison boxes, decision trees, clusters, edges).
+          for (const svg of Array.from(document.querySelectorAll('pre.mermaid svg'))) {
+            for (const node of Array.from(svg.querySelectorAll('g.node, g.edgeLabel, g.cluster, g.actor'))) {
+              try {
+                const fo = node.querySelector('foreignObject');
+                if (!fo) continue;
+                const label = fo.querySelector('div') || fo;
+                const shape = node.querySelector('rect, polygon');
+                const boxW = shape ? shape.getBBox().width
+                                   : (parseFloat(fo.getAttribute('width')) || 0);
+                if (!boxW || label.scrollWidth <= label.clientWidth + 2) continue;
+                label.style.whiteSpace = 'normal';
+                label.style.wordWrap = 'break-word';
+                label.style.overflowWrap = 'break-word';
+                label.style.maxWidth = Math.max(40, boxW - 6) + 'px';
+              } catch(e) {}
+            }
+          }
+          // Walk every text node inside a mermaid SVG and, if its color does
+          // not contrast with its background, force a readable color.
+          for (const svg of Array.from(document.querySelectorAll('pre.mermaid svg'))) {
+            // node boxes: find shapes carrying an explicit fill and the text they contain
+            const shapes = svg.querySelectorAll('g.node rect, g.node polygon, g.node circle, g>rect, g>circle');
+            for (const shape of shapes) {
+              const fill = toHex(shape.getAttribute('fill') || shape.style.fill);
+              if (!fill) continue;
+              const g = shape.closest('g');
+              if (!g) continue;
+              const texts = Array.from(g.querySelectorAll('text'));
+              for (const t of texts) {
+                const col = toHex(t.getAttribute('fill') || t.style.fill);
+                if (!col || contrastRatio(col, fill) >= 4.5) continue;
+                t.setAttribute('fill', bestText(fill));
+              }
+            }
+            // edge labels sit on a white pill; force dark text if invisible
+            for (const lab of Array.from(svg.querySelectorAll('.edgeLabel, g.edgeLabel'))) {
+              lab.style.color = '#1e293b';
+              const texts = Array.from(lab.querySelectorAll('text'));
+              for (const t of texts) t.setAttribute('fill', '#1e293b');
+            }
+          }
+        })()"""
+        js = js.replace("__TMRVARS__", tmvars_json).replace("__COLORS__", colors_json)
+        await page.evaluate(js)
+
+        # wait until every mermaid pre has been replaced by an svg (or an error)
+        try:
+            await page.wait_for_function(
+                """() => {
+                  const pres = document.querySelectorAll('pre.mermaid');
+                  if (pres.length === 0) return true;
+                  return Array.from(pres).every(el => {
+                    // Check if replaced with SVG or has error class
+                    if (el.querySelector('svg')) return true;
+                    if (el.classList.contains('merr')) return true;
+                    // Check if contains error text
+                    const text = el.textContent || '';
+                    if (/syntax|error|version|parse/i.test(text)) return true;
+                    return false;
                   });
-                  if (i > 0) {
-                    svg += '<line x1="' + (x - gap + 4) + '" y1="' + mid + '" x2="' + (x - 4) + '" y2="' + mid +
-                           '" stroke="#94a3b8" stroke-width="2" marker-end="url(#' + aid + ')"/>';
-                  }
-                  x += r.w + gap;
-                });
-                return svg + '</svg>';
-              };
-              const els = Array.from(document.querySelectorAll('pre.mermaid'));
-              for (const el of els) {
-                const def = el.textContent.trim();
-                if (!def) { el.innerHTML = buildFallbackSvg(el.id, 'Concept'); continue; }
-                let svg = '';
-                try {
-                  const r = await mermaid.render('svg-' + el.id, def);
-                  svg = r.svg || '';
-                } catch (e) {
-                  svg = '';
-                }
-                // Check for error patterns - be specific to avoid false positives
-                const hasSyntaxError = /syntax\s+error/i.test(svg);
-                const hasMermaidVersion = /mermaid\s+version/i.test(svg);
-                const hasParseError = /parse\s+error/i.test(svg);
-                const hasRenderError = /error\s+rendering/i.test(svg);
-                // Check doubled chars only in visible text (strip all tags + attrs to avoid CSS/filter hex color false positives)
-                const svgVisibleText = svg.replace(/<[^>]*>/g, '').replace(/#[0-9a-fA-F]{4,}/gi, '').replace(/hsl\([^)]*\)/gi, '');
-                const hasDoubledChars = /(\w)\1{3,}/.test(svgVisibleText);
-                const textCount = (svg.match(/<text/g) || []).length;
-                const rectCount = (svg.match(/<rect/g) || []).length;
-                // Error if: specific error text, doubled chars in text, or no shapes at all
-                const bad = hasSyntaxError || hasMermaidVersion || hasParseError || hasRenderError || hasDoubledChars || !svg || (rectCount === 0 && textCount > 5);
-                el.innerHTML = bad ? buildFallbackSvg(el.id, def) : svg;
-                // mermaid.render leaves its temp container div (id 'svg-<el.id>')
-                // in the body holding the error graphic; remove it so a "Syntax
-                // error in text" block never leaks into the rendered page.
-                const mermaidTemp = document.getElementById('svg-' + el.id);
-                if (mermaidTemp && !el.contains(mermaidTemp)) mermaidTemp.remove();
-              }
-              // Fix mermaid viewBox clipping: expand viewBox to cover all content
-              for (const el of Array.from(document.querySelectorAll('pre.mermaid svg'))) {
-                try {
-                  const bbox = el.getBBox();
-                  const vb = el.getAttribute('viewBox');
-                  if (!vb) continue;
-                  const parts = vb.split(/[\s,]+/).map(Number);
-                  const vx = parts[0], vy = parts[1], vw = parts[2], vh = parts[3];
-                  let newVx = Math.min(vx, bbox.x - 5);
-                  let newVy = Math.min(vy, bbox.y - 5);
-                  let newVw = Math.max(vw, bbox.x + bbox.width + 10 - newVx);
-                  let newVh = Math.max(vh, bbox.y + bbox.height + 10 - newVy);
-                  if (newVx < vx || newVy < vy || newVw > vw || newVh > vh) {
-                    el.setAttribute('viewBox', newVx + ' ' + newVy + ' ' + newVw + ' ' + newVh);
-                  }
-                } catch(e) {}
-              }
-              // ---- Overflow safety net: any label wider than its box gets
-              // wrapped at the box width so text is never clipped, regardless of
-              // how long a generated label is. Runs on every diagram type
-              // (flowcharts, comparison boxes, decision trees, clusters, edges).
-              for (const svg of Array.from(document.querySelectorAll('pre.mermaid svg'))) {
-                for (const node of Array.from(svg.querySelectorAll('g.node, g.edgeLabel, g.cluster, g.actor'))) {
-                  try {
-                    const fo = node.querySelector('foreignObject');
-                    if (!fo) continue;
-                    const label = fo.querySelector('div') || fo;
-                    const shape = node.querySelector('rect, polygon');
-                    const boxW = shape ? shape.getBBox().width
-                                       : (parseFloat(fo.getAttribute('width')) || 0);
-                    if (!boxW || label.scrollWidth <= label.clientWidth + 2) continue;
-                    label.style.whiteSpace = 'normal';
-                    label.style.wordWrap = 'break-word';
-                    label.style.overflowWrap = 'break-word';
-                    label.style.maxWidth = Math.max(40, boxW - 6) + 'px';
-                  } catch(e) {}
-                }
-              }
-              // Walk every text node inside a mermaid SVG and, if its color does
-              // not contrast with the box fill behind it, flip it to black or
-              // white (whichever is better). Catches LLM-generated colors that
-              // slipped past the source-level guard (e.g. dark fill + dark text).
-              const relLum = (hex) => {
-                const r = parseInt(hex.slice(1,3),16)/255, g = parseInt(hex.slice(3,5),16)/255, b = parseInt(hex.slice(5,7),16)/255;
-                const f = (c) => c <= 0.04045 ? c/12.92 : Math.pow((c+0.055)/1.055, 2.4);
-                return 0.2126*f(r) + 0.7152*f(g) + 0.0722*f(b);
-              };
-              const contrastRatio = (a, b) => {
-                const la = relLum(a), lb = relLum(b);
-                return (Math.max(la,lb)+0.05)/(Math.min(la,lb)+0.05);
-              };
-              const bestText = (bg) => {
-                const cw = contrastRatio('#ffffff', bg), cd = contrastRatio('#1f2430', bg);
-                if (cw >= 4.5) return '#ffffff';
-                if (cd >= 4.5) return '#1f2430';
-                return cw >= cd ? '#ffffff' : '#1f2430';
-              };
-              const toHex = (v) => {
-                if (!v) return null;
-                v = String(v).trim();
-                if (/^#[0-9a-fA-F]{6}$/.test(v)) return v;
-                if (/^#[0-9a-fA-F]{3}$/.test(v)) return '#'+v[1]+v[1]+v[2]+v[2]+v[3]+v[3];
-                const m = v.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-                if (m) return '#' + [1,2,3].map(i => ('0'+parseInt(m[i]).toString(16)).slice(-2)).join('');
-                return null;
-              };
-              for (const svg of Array.from(document.querySelectorAll('pre.mermaid svg'))) {
-                // node boxes: find shapes carrying an explicit fill and the text they contain
-                const shapes = svg.querySelectorAll('g.node rect, g.node polygon, g.node circle, g>rect, g>circle');
-                for (const shape of shapes) {
-                  const fill = toHex(shape.getAttribute('fill') || shape.style.fill);
-                  if (!fill) continue;
-                  const g = shape.closest('g');
-                  if (!g) continue;
-                  const texts = Array.from(g.querySelectorAll('text'));
-                  for (const t of texts) {
-                    const col = toHex(t.getAttribute('fill') || t.style.fill);
-                    if (!col || contrastRatio(col, fill) >= 4.5) continue;
-                    t.setAttribute('fill', bestText(fill));
-                  }
-                }
-                // edge labels sit on a white pill; force dark text if invisible
-                for (const lab of Array.from(svg.querySelectorAll('.edgeLabel, g.edgeLabel'))) {
-                  lab.style.color = '#1e293b';
-                  const texts = Array.from(lab.querySelectorAll('text'));
-                  for (const t of texts) t.setAttribute('fill', '#1e293b');
-                }
-              }
-            })()"""
-            js = js.replace("__TMRVARS__", tmvars_json).replace("__COLORS__", colors_json)
-            await page.evaluate(js)
-
-            # wait until every mermaid pre has been replaced by an svg (or an error)
-            try:
-                await page.wait_for_function(
-                    """() => {
-                      const pres = document.querySelectorAll('pre.mermaid');
-                      if (pres.length === 0) return true;
-                      return Array.from(pres).every(el => {
-                        // Check if replaced with SVG or has error class
-                        if (el.querySelector('svg')) return true;
-                        if (el.classList.contains('merr')) return true;
-                        // Check if contains error text
-                        const text = el.textContent || '';
-                        if (/syntax|error|version|parse/i.test(text)) return true;
-                        return false;
-                      });
-                    }""",
-                    timeout=60000,
-                )
-            except Exception:
-                pass  # pull whatever rendered
-            await page.wait_for_timeout(300)
-
-            # Make sure every embedded image has finished loading before we
-            # snapshot the page to PDF. `data:` URLs decode synchronously, but
-            # Chromium still needs a tick to paint them into the layout.
-            try:
-                await page.wait_for_function(
-                    """() => Array.from(document.images).every(img => img.complete)""",
-                    timeout=30000,
-                )
-            except Exception:
-                pass
-
-            # Layout safety net (Bug 2): if a heading's container is a fixed-height
-            # block (>100px taller than the heading itself) or the heading carries an
-            # oversized top margin, collapse it so no dead gap ships in the PDF.
-            gap_report = await page.evaluate("""() => {
-              const MAX_GAP = 100;
-              const PAGE_BREAK_GAP = 600; // anything larger is a real page break
-              const fixed = [];
-              for (const h of Array.from(document.querySelectorAll('h1,h2,h3,h4'))) {
-                const parent = h.parentElement;
-                if (!parent || parent.tagName === 'BODY' || parent.tagName === 'HTML') continue;
-                if (parent.classList.contains('cover')) continue;
-                const ph = parent.getBoundingClientRect().height;
-                const hh = h.getBoundingClientRect().height;
-                if (ph > hh + MAX_GAP && parent.children.length === 1) {
-                  parent.style.height = 'auto';
-                  fixed.push(parent.tagName + (parent.className ? '.' + parent.className : ''));
-                }
-                const mt = parseFloat(getComputedStyle(h).marginTop) || 0;
-                if (mt > MAX_GAP) {
-                  h.style.marginTop = '6mm';
-                  fixed.push(h.tagName + '#margin-top');
-                }
-                const sib = h.nextElementSibling;
-                if (sib) {
-                  const gap = sib.getBoundingClientRect().top - h.getBoundingClientRect().bottom;
-                  if (gap > MAX_GAP && gap < PAGE_BREAK_GAP) {
-                    const mb = parseFloat(getComputedStyle(h).marginBottom) || 0;
-                    h.style.marginBottom = Math.max(0, mb - (gap - 12)) + 'px';
-                    fixed.push(h.tagName + '#gap:' + Math.round(gap));
-                  }
-                }
-              }
-              return { auto_collapsed: fixed };
-            }""")
-            print(f"GAP_REPORT {theme_key}: {gap_report}")
-
-            await page.pdf(
-                path=out_path,
-                format="A4",
-                print_background=True,
-                prefer_css_page_size=True,
-                display_header_footer=True,
+                }""",
+                timeout=15000,
             )
-        finally:
+        except Exception:
+            pass  # pull whatever rendered
+        await page.wait_for_timeout(200)
+
+        # Make sure every embedded image has finished loading before we
+        # snapshot the page to PDF. `data:` URLs decode synchronously, but
+        # Chromium still needs a tick to paint them into the layout.
+        try:
+            await page.wait_for_function(
+                """() => Array.from(document.images).every(img => img.complete)""",
+                timeout=10000,
+            )
+        except Exception:
+            pass
+
+        # Layout safety net (Bug 2): if a heading's container is a fixed-height
+        # block (>100px taller than the heading itself) or the heading carries an
+        # oversized top margin, collapse it so no dead gap ships in the PDF.
+        gap_report = await page.evaluate("""() => {
+          const MAX_GAP = 100;
+          const PAGE_BREAK_GAP = 600; // anything larger is a real page break
+          const fixed = [];
+          for (const h of Array.from(document.querySelectorAll('h1,h2,h3,h4'))) {
+            const parent = h.parentElement;
+            if (!parent || parent.tagName === 'BODY' || parent.tagName === 'HTML') continue;
+            if (parent.classList.contains('cover')) continue;
+            const ph = parent.getBoundingClientRect().height;
+            const hh = h.getBoundingClientRect().height;
+            if (ph > hh + MAX_GAP && parent.children.length === 1) {
+              parent.style.height = 'auto';
+              fixed.push(parent.tagName + (parent.className ? '.' + parent.className : ''));
+            }
+            const mt = parseFloat(getComputedStyle(h).marginTop) || 0;
+            if (mt > MAX_GAP) {
+              h.style.marginTop = '6mm';
+              fixed.push(h.tagName + '#margin-top');
+            }
+            const sib = h.nextElementSibling;
+            if (sib) {
+              const gap = sib.getBoundingClientRect().top - h.getBoundingClientRect().bottom;
+              if (gap > MAX_GAP && gap < PAGE_BREAK_GAP) {
+                const mb = parseFloat(getComputedStyle(h).marginBottom) || 0;
+                h.style.marginBottom = Math.max(0, mb - (gap - 12)) + 'px';
+                fixed.push(h.tagName + '#gap:' + Math.round(gap));
+              }
+            }
+          }
+          return { auto_collapsed: fixed };
+        }""")
+        print(f"GAP_REPORT {theme_key}: {gap_report}")
+
+        await page.pdf(
+            path=out_path,
+            format="A4",
+            print_background=True,
+            prefer_css_page_size=True,
+            display_header_footer=True,
+        )
+    finally:
+        if owns_browser:
             await browser.close()
     return out_path
 
@@ -1611,31 +1595,25 @@ flag = True and (3.14 <= 7)
 
 
 def compile_document_to_pdf(document: str, entries, template: dict = None) -> str:
-    """Two-pass render a fully-assembled HTML document to PDF with a real TOC.
+    """Render a fully-assembled HTML document to PDF.
 
-    `entries` is the ordered [(sec-N, title)] list used for the outline and
-    page-number verification. `template` (optional) drives mermaid diagram
-    colors/fonts; when omitted a neutral default is used.
+    `entries` is the ordered [(sec-N, title)] list used for the outline.
+    `template` (optional) drives mermaid diagram colors/fonts; when omitted a
+    neutral default is used.
     """
     workdir = pdf_workdir()
-    pass_a = os.path.join(workdir, f"ebook-{uuid.uuid4().hex[:8]}.pdf")
     out_path = os.path.join(workdir, f"ebook-{uuid.uuid4().hex[:8]}.pdf")
 
-    # Pass A: render without page numbers to discover final pagination.
-    _run_coro(render_pdf("", "Modern Tech Blog", pass_a, page_map=None, document=document, template=template))
-    page_map = _section_pages(pass_a, entries)
-
-    # Pass B: render with computed page numbers in the TOC.
-    _run_coro(render_pdf("", "Modern Tech Blog", out_path, page_map=page_map, document=document, template=template))
+    # Single-pass render. The TOC will show blank page numbers; this is a
+    # deliberate trade-off to keep generation under ~10s for short books.
+    _run_coro(render_pdf("", "Modern Tech Blog", out_path, page_map=None, document=document, template=template))
 
     try:
-        _add_outline_and_links(out_path, entries, page_map)
-        _verify_toc_pages(out_path, entries, page_map)
+        _add_outline_and_links(out_path, entries, {})
+        _verify_toc_pages(out_path, entries, {})
     except (ImportError, AttributeError) as e:  # pymupdf is optional
         print(f"POSTPROCESS_SKIP: {e}")
 
-    if os.path.exists(pass_a):
-        os.remove(pass_a)
     return out_path
 
 

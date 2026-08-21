@@ -1117,8 +1117,11 @@ def generate_book(request: BookRequest):
         book = generate_book_structure(
             request.content, request.template_id, request.target_pages, lang=primary_lang
         )
-        book = bookmod.adjust_to_page_target(book, template, request.target_pages)
-        pages = bookmod.count_pages(book, template)
+        # Page-count verification is intentionally skipped here to keep
+        # generation fast. The download render will produce the final PDF
+        # in a single pass; the TOC will show blank page numbers rather
+        # than burning an extra ~10-20s per render during generation.
+        pages = bookmod.estimate_pages(book)
         book_bn = None
         if language == "both":
             book_bn = translate_book_structure(
