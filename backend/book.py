@@ -648,7 +648,7 @@ def _expand_paragraph(block: dict) -> bool:
 
 
 def _add_example_blocks(book: dict, is_programming: bool) -> None:
-    """Add concrete examples and callouts to sections that are light on content."""
+    """Add at most one concrete example callout per section that is light on content."""
     examples = [
         callout(
             "example",
@@ -676,16 +676,16 @@ def _add_example_blocks(book: dict, is_programming: bool) -> None:
         blocks = sec.get("blocks", [])
         if len(blocks) >= 10:
             continue
-        added = 0
+        if any(b.get("type") == "callout" for b in blocks):
+            continue
         new_blocks = []
+        added = False
         for block in blocks:
             new_blocks.append(block)
-            if added >= 3:
-                continue
-            if block["type"] in ("paragraph", "code", "subheading"):
+            if not added and block["type"] in ("paragraph", "code", "subheading"):
                 new_blocks.append(examples[sec.get("_example_idx", 0) % len(examples)])
                 sec["_example_idx"] = sec.get("_example_idx", 0) + 1
-                added += 1
+                added = True
         sec["blocks"] = new_blocks
 
 
