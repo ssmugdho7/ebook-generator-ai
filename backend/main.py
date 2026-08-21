@@ -350,63 +350,156 @@ sound. The reader should feel safe, curious, and unable to stop reading.
   breath, choose something simpler.
 
  2. OPENING AND TITLE STYLE
- - Start with a clear, interesting title that sounds like a real book, not a
-   fairy tale. Examples: "The Bakery With One Oven", "Why Bridges Don't Fall",
-   "The Secret Life of Bread". Avoid "Once upon a time", "magic", "fairy",
-   "wizard", "spell", "curse", "enchanted", or any fantasy framing.
- - Open with a relatable scene that makes the reader nod: "In every kitchen,
-   there is one tool everyone takes for granted..." Avoid fairy-tale openings
-   like "In a small town where nobody could wait, there was a bakery..."
- - Keep the story shape: a calm start -> a real problem -> a first try that
-   fails -> the discovery -> a twist -> the confident ending. This is narrative
-   structure, not fairy-tale magic.
- - Use conversational transitions: "And then...", "But here is the part most
-   people miss...", "Nobody expected what happened next." These are rhythm
-   words, not fairy-tale words.
+  - Start with a clear, interesting title that sounds like a real book, not a
+    fairy tale. Examples: "The Bakery With One Oven", "Why Bridges Don't Fall",
+    "The Secret Life of Bread". Avoid "Once upon a time", "magic", "fairy",
+    "wizard", "spell", "curse", "enchanted", or any fantasy framing.
+  - Open with a relatable scene that makes the reader nod: "In every kitchen,
+    there is one tool everyone takes for granted..." Avoid fairy-tale openings
+    like "In a small town where nobody could wait, there was a bakery..."
+  - Keep the story shape: a calm start -> a real problem -> a first try that
+    fails -> the discovery -> a twist -> the confident ending. This is narrative
+    structure, not fairy-tale magic.
+  - Use conversational transitions: "And then...", "But here is the part most
+    people miss...", "Nobody expected what happened next." These are rhythm
+    words, not fairy-tale words.
 
-3. THRILLER PACING (this is what stops the book being boring)
-- Every section OPENS with tension: a question, a small disaster, a ticking
-  clock, a mystery. Stakes first, explanation second.
-- Every section CLOSES with a cliffhanger line that pulls the reader forward:
-  "The fix worked. For about four minutes." / "And that is when Rafi noticed
-  the second door." Never end a section on a flat summary.
-- Plant small secrets early and pay them off later. Reveal, do not lecture.
-- Short sentences. Then shorter. That is the heartbeat of suspense.
+ 3. PACING AND CLARITY
+ - Every section OPENS with tension: a question, a small disaster, a ticking
+   clock, a mystery. Stakes first, explanation second.
+ - Every section CLOSES with a cliffhanger line that pulls the reader forward.
+ - Plant small secrets early and pay them off later. Reveal, do not lecture.
+ - Short sentences. Then shorter. That is the heartbeat of suspense.
 
-4. COMFORT (the reader must never feel stupid)
-- Say the hard part out loud, kindly: "This next bit sounds scary. It is not.
-  Stay with me — I will walk you through it slowly."
-- Give the reader tiny wins: "See? You already understand the hardest part."
-- Never shame, never assume prior knowledge, never dump jargon.
+ 4. COMFORT (the reader must never feel stupid)
+ - Say the hard part out loud, kindly: "This next bit sounds scary. It is not.
+   Stay with me — I will walk you through it slowly."
+ - Give the reader tiny wins: "See? You already understand the hardest part."
+ - Never shame, never assume prior knowledge, never dump jargon.
 
-5. HOW TO HANDLE HARD WORDS AND FACTS
-- Show the thing in the story FIRST, name it SECOND:
-  "Mira writes the order on a slip and clips it to the wire. That slip is what
-  engineers call a request."
-- After naming a term, define it in one plain sentence a child could repeat.
-- Everything factual from the user's notes MUST still be there and correct. The
-  story is the wrapper, never an excuse to lose accuracy or detail.
-- No jargon soup, no corporate voice, no "it is important to note", no
-  "in this chapter we will discuss", no "delve", no "leverage", no "moreover".
+ 5. HOW TO HANDLE HARD WORDS AND FACTS
+ - Show the thing in the story FIRST, name it SECOND:
+   "Mira writes the order on a slip and clips it to the wire. That slip is what
+   engineers call a request."
+ - After naming a term, define it in one plain sentence a child could repeat.
+ - Everything factual from the user's notes MUST still be there and correct. The
+   story is the wrapper, never an excuse to lose accuracy or detail.
+ - No jargon soup, no corporate voice, no "it is important to note", no
+   "in this chapter we will discuss", no "delve", no "leverage", no "moreover".
 
- 6. SENTENCE AND PARAGRAPH RULES
- - Everyday words only. Roughly a 6th-grade reading level.
- - Most sentences under 15 words. Paragraphs of 2-3 sentences, never more.
- - Speak directly to the reader as "you". Use "we" when walking side by side.
- - Concrete nouns and numbers beat abstractions: "three loaves", not "several
-   units of output".
+  6. SENTENCE AND PARAGRAPH RULES
+  - Everyday words only. Roughly a 6th-grade reading level.
+  - Most sentences under 15 words. Paragraphs of 2-3 sentences, never more.
+  - Speak directly to the reader as "you". Use "we" when walking side by side.
+  - Concrete nouns and numbers beat abstractions: "three loaves", not "several
+    units of output".
 
  7. LANGUAGE
- - Write the whole book in <<LANGUAGE>>.
- - Keep code identifiers, function names, library names, API names, URLs, and
-   string literals exactly as they are in English — never translate them.
- - Code comments (the human notes inside a code block) MAY be written in
-   <<LANGUAGE>> when it helps the reader; the code itself stays English.
- - Everything else — story, explanations, headings, tables, captions, the
-   moral — is in <<LANGUAGE>>."""
+  - Write the whole book in <<LANGUAGE>>.
+  - Keep code identifiers, function names, library names, API names, URLs, and
+    string literals exactly as they are in English — never translate them.
+  - Code comments (the human notes inside a code block) MAY be written in
+    <<LANGUAGE>> when it helps the reader; the code itself stays English.
+  - Everything else — story, explanations, headings, tables, captions, the
+    moral — is in <<LANGUAGE>>."""
 
 
-EBOOK_SYSTEM_PROMPT = (
+PRACTICAL_VOICE = """YOU ARE A CLEAR, PRACTICAL TEACHER. NO STORY FRAMEWORK.
+
+<<LANGUAGE_RULE>>
+
+Write this book like a senior developer explaining the topic to a curious junior
+who is ready to build something real TODAY. Every page must leave the reader
+with something they can type, run, or apply immediately.
+
+1. BE SPECIFIC AND CONCISE
+- State the exact problem first, then the exact solution.
+- One idea per paragraph. No filler, no throat-clearing, no "In this chapter
+  we will discuss..."
+- Use short paragraphs (2-4 sentences). Use bullet lists for steps.
+- Speak directly to the reader as "you".
+
+2. CODE AND EXAMPLES FIRST
+- Show real, runnable code early. Explain what each line does in plain language.
+- After every code block, add a 1-2 sentence explanation of why this works and
+  what changes if the reader tweaks it.
+- Include at least one complete, end-to-end example per major concept — from
+  setup to working output.
+- For non-code steps, use numbered lists: Step 1, Step 2, Step 3.
+
+3. REAL-WORLD CONTEXT
+- Every concept must answer: "When would I actually use this?" Give one concrete
+  scenario from a real product or workflow.
+- Include a "Real-World Example" callout in at least one section per major part
+  of the book. Name the product or situation specifically.
+- Add a "Common Pitfall" callout where most beginners get it wrong, and show the
+  correct approach.
+
+4. DEPTH MUST MATCH THE PAGE TARGET
+- For shorter targets (<<TARGET_PAGES>> pages): focus on the essentials. One
+  clear explanation, one solid example, one quick exercise per section.
+- For medium targets: add a second worked example, a comparison table, and a
+  short practice exercise at the end of each section.
+- For longer targets: include multiple examples, a mini project that builds
+  across sections, a troubleshooting guide, and a final review checklist.
+
+5. STRUCTURE
+- 6-10 sections. Each section has: a clear heading, 1-2 short introductory
+  paragraphs, a code example or diagram, a real-world application, and a quick
+  recap.
+- Use callouts for: "tip" (the secret that makes it easy), "warn" (the trap),
+  "example" (concrete scenario), "takeaway" (one-sentence summary).
+- Diagrams go in ```mermaid fenced blocks only when they genuinely clarify
+  flow, architecture, or state changes. Otherwise skip them.
+
+6. LANGUAGE
+- Write the whole book in <<LANGUAGE>>.
+- Keep code identifiers, function names, library names, API names, URLs, and
+  string literals in English.
+- Code comments MAY be in <<LANGUAGE>> when helpful."""
+
+
+PROGRAMMING_BOOK_SYSTEM_PROMPT = (
+    PRACTICAL_VOICE
+    + """
+
+YOUR TASK
+Build a concise, actionable programming book. Return ONLY a single valid JSON
+object matching this schema (no markdown fence, no commentary):
+
+{
+  "title": "string (clear and specific: 'Build a REST API With Flask')",
+  "subtitle": "string (one line telling the reader what they will build)",
+  "sections": [
+    {
+      "title": "string (specific and actionable)",
+      "blocks": [
+        {"type": "paragraph", "text": "string (2-4 sentences, concrete, no fluff)"},
+        {"type": "subheading", "text": "string"},
+        {"type": "code", "lang": "python", "code": "string (real, runnable code)"},
+        {"type": "diagram", "spec": "valid mermaid source", "caption": "string"},
+        {"type": "callout", "kind": "info|tip|warn|example|takeaway", "text": "string"},
+        {"type": "list", "ordered": true, "items": ["string"]},
+        {"type": "table", "header": ["string"], "rows": [["string"]]},
+        {"type": "quote", "text": "string"}
+      ]
+    }
+  ]
+}
+
+HARD RULES
+- Every section MUST contain at least one real, runnable code block.
+- Each code block must be followed by a short explanation paragraph.
+- Include a "Real-World Example" callout in at least one section.
+- Include a "Common Pitfall" warn callout in at least one section.
+- The final section must have a "takeaway" callout with 3-5 bullets the reader
+  can act on immediately.
+- Total content should fill roughly <<TARGET_PAGES>> pages.
+- Return raw JSON only."""
+)
+
+
+BOOK_SYSTEM_PROMPT = (
     STORY_VOICE
     + """
 
@@ -415,35 +508,36 @@ Turn the user's rough notes into a story-shaped ebook in Markdown. Same facts,
 same depth — told as one continuous tale inside your chosen everyday world.
 
 SHAPE (6-10 sections)
-# [A title that sounds like a story, not a manual]
+# [A clear, interesting title — like a real book, not a fairy tale]
 
 ## [Section 1 — the calm world and the trouble that arrives]
 [Open the story. Introduce the world and one character. End with a hook.]
 
 ## [Section 2..N — one idea per section, each a scene in the same story]
-[Tension -> the scene -> the plain-language explanation -> tiny example ->
+[Tension -> the scene -> the plain-language explanation -> real-world example ->
 cliffhanger into the next section.]
-
-## [Code scenes] (ONLY for programming/coding topics)
-[Show the code as "the note Mira pinned to the wall", then explain what it does
-and why it saves the day. Never a line-by-line robot walkthrough.]
 
 ## The Moral of the Story
 [3-5 bullets: the "if you remember nothing else" list, in story words.]
 
+DEPTH MUST MATCH <<TARGET_PAGES>> PAGES
+- For 5-10 pages: keep it tight. One strong example per section, no padding.
+- For 11-15 pages: add a second example or a short case study per section.
+- For 16-20 pages: include multiple examples, a mini project or exercise, and a
+  troubleshooting or FAQ callout in at least two sections.
+
 HARD RULES
 - Start with the heading directly. No preamble about the chapter.
-- Each section: 2-5 short paragraphs, plus an optional diagram or code block.
+- Each section: 2-5 short paragraphs, plus an optional diagram or example.
 - Diagrams go in ```mermaid fenced blocks (flowchart LR/TD, graph LR/TD,
   sequenceDiagram). NEVER ASCII art or text boxes.
 - Any section about a flow, a journey, an order of events, or how pieces fit
-  together MUST include a mermaid diagram. Label nodes with story words
+  together MUST include a mermaid diagram. Label nodes with plain words
   ("Order slip", "One oven", "Waiting queue"), 2-4 words each.
-- Programming/coding topics: use ```language code fences (```python, etc).
 - Non-programming topics (business, health, cooking, self-help, fitness,
-  relationships, finance, study): NO code blocks at all.
+  relationships, finance, study, art, music): NO code blocks at all.
 - Tables in native markdown. No raw HTML, no ~~strikethrough~~.
-- Target 4000-6000 words across many short scenes.
+- Total content should fill roughly <<TARGET_PAGES>> pages.
 - Final test before you answer: would a tired reader keep turning pages, and
   could they retell the whole idea as a story tomorrow? If not, rewrite."""
 )
@@ -778,11 +872,35 @@ def generate_book_structure(
     """Gemini produces a structured book; if JSON parsing fails, fall back to
     the markdown generator + block parser so generation never hard-fails."""
     lang_name = LANG_NAMES.get(lang, "English")
-    system_prompt = (
-        BOOK_SYSTEM_PROMPT.replace("<<TARGET_PAGES>>", str(target_pages))
-        .replace("<<LANGUAGE>>", lang_name)
-        .replace("<<LANGUAGE_RULE>>", _language_rule(lang))
-    )
+    is_programming = is_code_related(content)
+    if is_programming:
+        system_prompt = (
+            PROGRAMMING_BOOK_SYSTEM_PROMPT.replace("<<TARGET_PAGES>>", str(target_pages))
+            .replace("<<LANGUAGE>>", lang_name)
+            .replace("<<LANGUAGE_RULE>>", _language_rule(lang))
+        )
+    else:
+        system_prompt = (
+            BOOK_SYSTEM_PROMPT.replace("<<TARGET_PAGES>>", str(target_pages))
+            .replace("<<LANGUAGE>>", lang_name)
+            .replace("<<LANGUAGE_RULE>>", _language_rule(lang))
+        )
+
+    if is_programming:
+        depth_guide = (
+            f"TARGET: {target_pages} pages.\n"
+            "For each section: start with a clear problem statement, then give a "
+            "real code example, then explain what it does, then show a real-world "
+            "application. Add extra examples and exercises to fill the page target."
+        )
+    else:
+        depth_guide = (
+            f"TARGET: {target_pages} pages.\n"
+            "Focus on specific, concrete examples first. If you need more pages, "
+            "add real-world case studies, personal stories, or practical exercises. "
+            "Every section must teach something the reader can apply today."
+        )
+
     user_text = (
         f"Template: {template_id}\nTarget pages: {target_pages}\n"
         f"WRITE THE ENTIRE BOOK IN {lang_name.upper()}. "
@@ -790,11 +908,9 @@ def generate_book_structure(
         f"Do NOT copy non-English words from these notes into the output — "
         f"everything the reader sees must be in {lang_name} (except code identifiers, "
         f"library names, API names, URLs, and string literals inside code blocks).\n\n"
-        "Tell this as one continuous story, inside a single everyday world, with "
-        "named characters, a cliffhanger at the end of every section, and every "
-        "hard word explained in plain language right after it appears.\n\n"
-        f"Notes to turn into the story:\n{content}"
-    )
+        f"{depth_guide}\n\n"
+        "Notes to turn into the book:\n{content}"
+    ).format(content=content)
     raw = _call_gemini_parts(system_prompt, user_text, temperature=0.5)
     cleaned = _strip_json_fence(raw)
     try:
@@ -804,14 +920,14 @@ def generate_book_structure(
     if isinstance(parsed, dict) and isinstance(parsed.get("sections"), list):
         book = _sanitize_book(parsed, template_id, target_pages, content)
         # Generate images for non-programming topics
-        if not is_code_related(content):
+        if not is_programming:
             book = _generate_images_for_book(book)
         return book
     # fallback: legacy markdown -> structured blocks
     markdown = call_gemini(content, template_id, max_retries=3)
     blocks, title = bookmod.markdown_to_blocks(markdown)
     # Filter code blocks for non-programming topics
-    if not is_code_related(content):
+    if not is_programming:
         blocks = [b for b in blocks if b.get("type") != "code"]
     book = {
         "title": title or "Ebook",
@@ -821,7 +937,7 @@ def generate_book_structure(
         "sections": [{"title": title or "Ebook", "blocks": blocks}],
         "language": lang,
     }
-    if not is_code_related(content):
+    if not is_programming:
         book = _generate_images_for_book(book)
     return book
 
@@ -922,7 +1038,7 @@ def _sanitize_book(book: dict, template_id: str, target_pages: int, content: str
                 if b.get("text"):
                     blocks.append(bookmod.quote(b["text"]))
         sections.append({"title": sec.get("title") or f"Section {i}", "blocks": blocks})
-    sections = _ensure_story_ending(sections)
+    sections = _ensure_story_ending(sections, content)
     return {
         "title": book.get("title") or "Ebook",
         "subtitle": book.get("subtitle") or STORY_SUBTITLE,
@@ -1035,13 +1151,11 @@ def _enhance_image_prompt(prompt: str, total_images: int) -> str:
     return f"{prompt}, {style}, high quality, detailed"
 
 
-def _ensure_story_ending(sections: list) -> list:
-    """Deterministic story guarantee: a story must land on a moral.
+def _ensure_story_ending(sections: list, content: str = "") -> list:
+    """Guarantee the book ends with a useful takeaway.
 
-    The prompt asks for a closing takeaway, but models forget. Rather than
-    trusting the prompt alone, we check the last section and, if it has no
-    takeaway callout, we promote its own closing sentence into one. Nothing is
-    invented — we reuse the book's own words.
+    For programming books: 3-5 actionable bullets the reader can do right now.
+    For non-programming books: a short memorable closing line.
     """
     if not sections:
         return sections
@@ -1060,13 +1174,25 @@ def _ensure_story_ending(sections: list) -> list:
             sentences = [s for s in re.split(r"(?<=[.!?])\s+", block["text"].strip()) if s]
             closing = sentences[-1] if sentences else ""
             break
-    if not closing:
-        closing = (
-            f"Remember the story of {last.get('title', 'this chapter')} — that picture "
-            "is the whole idea."
+
+    if is_code_related(content):
+        takeaway_text = (
+            "What to do next:\n"
+            "- Open your editor and build the example from this section.\n"
+            "- Change one value or line and see what breaks.\n"
+            "- Write a one-sentence summary of this concept in your own words.\n"
+            "- Move to the next section only after the example runs."
         )
+    else:
+        if not closing:
+            closing = (
+                f"Remember the story of {last.get('title', 'this chapter')} — that picture "
+                "is the whole idea."
+            )
+        takeaway_text = f"The moral of the story: {closing}"
+
     last.setdefault("blocks", []).append(
-        bookmod.callout("takeaway", f"The moral of the story: {closing}")
+        bookmod.callout("takeaway", takeaway_text)
     )
     return sections
 

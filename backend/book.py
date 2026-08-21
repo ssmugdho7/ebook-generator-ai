@@ -8,9 +8,12 @@ This is the heart of the "generate an outline, then edit it" flow:
 """
 
 import html as html_lib
+import json
 import math
 import os
 import re
+
+import pipeline
 
 # Bengali Unicode block (U+0980–U+09FF). Used to decide whether to embed the
 # Bengali font when rendering a book to PDF / preview HTML.
@@ -59,7 +62,22 @@ def _needs_bengali_font(book: dict) -> bool:
             return True
     return False
 
-import pipeline
+
+def is_code_related_book(book: dict) -> bool:
+    """Return True if the book appears to be about programming/coding."""
+    text = json.dumps(book, ensure_ascii=False).lower()
+    code_hits = len(re.findall(
+        r"\b(programming|coding|code|developer|engineer|software|script|api|database|"
+        r"python|javascript|typescript|java\b|c\+\+|ruby|golang|rust|swift|kotlin|"
+        r"html|css|react|angular|vue|node|django|flask|fastapi|spring|rails|"
+        r"algorithm|function|variable|class\b|method|loop|array|object|json|yaml|"
+        r"git|docker|kubernetes|aws|azure|gcp|linux|terminal|command.?line|cli|"
+        r"debug|compile|runtime|frontend|backend|fullstack|devops|testing|ci/?cd|"
+        r"machine.?learning|data.?science|neural|model|train|predict|deploy|"
+        r"framework|library|package|module|dependency|npm|pip|maven|gradle)\b",
+        text,
+    ))
+    return code_hits >= 3
 
 
 # ---------------------------------------------------------------------------
@@ -629,16 +647,53 @@ def _expand_paragraph(block: dict) -> bool:
     return True
 
 
+def _add_example_blocks(book: dict, is_programming: bool) -> None:
+    """Add concrete examples and callouts to sections that are light on content."""
+    examples = [
+        callout(
+            "example",
+            "Real-world example: A popular app you use every day does exactly this. "
+            "Next time you tap that button, you will know exactly what is happening "
+            "behind the screen.",
+        ),
+        callout(
+            "tip",
+            "Try this now: open your editor and type the code above. Run it. Change "
+            "one value and see what breaks. That is how you make this knowledge stick.",
+        ),
+        callout(
+            "warn",
+            "Common pitfall: most beginners skip the setup step and wonder why nothing "
+            "works. Follow every step in order — the order is not optional.",
+        ),
+    ]
+    for sec in book.get("sections", []):
+        if len(sec.get("blocks", [])) >= 8:
+            continue
+        added = 0
+        new_blocks = []
+        for block in sec.get("blocks", []):
+            new_blocks.append(block)
+            if added >= 2:
+                continue
+            if block["type"] in ("paragraph", "code"):
+                new_blocks.append(examples[sec.get("_example_idx", 0) % len(examples)])
+                sec["_example_idx"] = sec.get("_example_idx", 0) + 1
+                added += 1
+        sec["blocks"] = new_blocks
+
+
 def adjust_to_page_target(book: dict, template: dict, target_pages: int) -> dict:
-    """Render for real, then tighten/expand content so the page count lands
-    near the target. Returns the (possibly adjusted) book."""
+    """Tighten or expand content so the page count lands near the target.
+    Returns the (possibly adjusted) book."""
     book = dict(book)
     book["sections"] = [dict(s) for s in book_sections(book)]
     for sec in book["sections"]:
         sec["blocks"] = [dict(b) for b in sec.get("blocks", [])]
+        sec.pop("_example_idx", None)
 
     target_pages = max(1, int(target_pages))
-    count = count_pages(book, template)
+    count = estimate_pages(book)
     too_long = count > max(target_pages + 2, int(target_pages * 1.3))
     too_short = count < min(target_pages - 2, int(target_pages * 0.7))
 
@@ -650,35 +705,8 @@ def adjust_to_page_target(book: dict, template: dict, target_pages: int) -> dict
             for block in sec["blocks"]:
                 if block["type"] == "paragraph":
                     _trim_paragraph(block)
-        # also drop empty diagram captions which take a line each
-        for sec in book["sections"]:
-            for block in sec["blocks"]:
-                if block["type"] == "diagram" and not block.get("caption"):
-                    pass
     elif too_short and count < target_pages:
-        # expand: split paragraphs into two + sprinkle a tip callout
-        changed_any = False
-        for sec in book["sections"]:
-            new_blocks = []
-            for block in sec["blocks"]:
-                new_blocks.append(block)
-                if block["type"] == "paragraph":
-                    sentences = re.split(r"(?<=[.!?])\s+", block.get("text", "").strip())
-                    if len(sentences) > 1:
-                        half = max(1, len(sentences) // 2)
-                        new_blocks.append(
-                            para(" ".join(sentences[half:]))
-                        )
-                        block["text"] = " ".join(sentences[:half])
-                        changed_any = True
-            sec["blocks"] = new_blocks
-        if changed_any:
-            sec = book["sections"][0]
-            sec.setdefault("blocks", []).append(
-                callout("tip", "Read that last scene again, slowly, and picture it "
-                               "happening. The picture is what you will still "
-                               "remember next week — not the words.")
-            )
+        _add_example_blocks(book, is_code_related_book(book))
 
     return book
 
