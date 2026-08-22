@@ -174,6 +174,30 @@ Sanity checks worth doing once:
 - A fitness/cooking topic → no code blocks, health-flavoured cover icons.
 - A programming topic → code blocks appear with syntax highlighting.
 
+### Book Studio (Phase 2) — section-level AI editing
+
+After generating a book, the **Book Studio** panel appears below the preview:
+
+1. Click any section in the left sidebar to select it.
+2. Use the AI Edit buttons on the right:
+   - **Simplify / Expand / Improve** — always available.
+   - **Add Code / Add Diagram / Add Example / Regenerate / Add Quiz** — only
+     enabled for programming/tech topics.
+   - **Custom instruction** — type any instruction and click **Apply AI Edit**.
+3. After an edit, the **Undo** button appears (one-level undo).
+4. Click **Download PDF** to get the updated book.
+
+Verify the endpoint directly:
+
+```bash
+curl -X POST https://ebook-api.onrender.com/api/edit-section \
+  -H "Content-Type: application/json" \
+  -d '{"book":{"title":"Test","sections":[{"title":"S1","blocks":[{"type":"paragraph","text":"Hello"}]}]},"section_index":0,"action":"simplify","language":"en"}'
+```
+
+A successful response returns the updated book JSON with only the targeted
+section changed.
+
 ---
 
 ## Step 6 — Confirm the data landed in Neon
@@ -301,6 +325,19 @@ the API to Starter.
 
 Almost always a transient apt/network error — **Manual Deploy → Clear build
 cache & deploy**.
+
+### Book Studio edit returns 422 "Edit failed, original section kept"
+
+The AI returned malformed JSON. The original section is preserved unchanged.
+Try again — this is usually transient. If it persists, the topic may be
+too ambiguous for the model; rephrase the custom instruction.
+
+### Book Studio buttons are greyed out for a non-programming book
+
+This is intentional. Add Code, Add Diagram, Add Example, Regenerate, and
+Add Quiz are disabled for non-programming topics because they produce code
+blocks or technical diagrams that don't suit those books. Simplify, Expand,
+Improve, and custom instructions always work.
 
 ---
 

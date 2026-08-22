@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 import book as bookmod
 import db
+import editor as editormod
 import templates as templatesmod
 from key_manager import create_key_manager, RateLimitError
 from pipeline import compile_markdown_to_pdf, compile_document_to_pdf
@@ -596,6 +597,19 @@ class BookRequest(BaseModel):
 class PreviewRequest(BaseModel):
     book: dict
     template_id: str = "minimal-light"
+    # Optional PNG/JPEG data URL of a client-selected cover; embedded as page 1.
+    cover_image: Optional[str] = None
+
+
+class EditSectionRequest(BaseModel):
+    # When the database is configured, ebook_id is the source of truth; otherwise
+    # the full `book` payload is used (so the studio still works with no DB).
+    ebook_id: Optional[str] = None
+    book: Optional[dict] = None
+    section_index: int
+    action: str
+    instruction: Optional[str] = None
+    language: str = "en"
 
 
 class TranslateRequest(BaseModel):
@@ -614,6 +628,8 @@ class DownloadRequest(BaseModel):
     ebook_id: Optional[str] = None
     # "en" or "bn" — selects which book payload to render (only for `book`)
     language: str = "en"
+    # Optional PNG/JPEG data URL of a client-selected cover; embedded as page 1.
+    cover_image: Optional[str] = None
 
 
 GEMINI_MODEL = "gemini-3.6-flash"
@@ -825,6 +841,36 @@ def _try_models(run, max_retries: int = 5):
         f"All Gemini models/keys exhausted after retries. "
         f"Last error: {last_error}"
     )
+
+
+# Legacy markdown-generation system prompt (used by the old /api/generate flow).
+EBOOK_SYSTEM_PROMPT = (
+    STORY_VOICE
+    + """
+
+YOUR TASK
+Turn the user's rough notes into a story-shaped ebook in Markdown. Same facts,
+same depth -- told as one continuous tale inside your chosen everyday world.
+
+SHAPE (6-10 sections)
+# [A clear, relevant title]
+
+## [Section 1 -- the calm world and the trouble that arrives]
+[Open the story. Introduce the world and one character. End with a hook.]
+
+## [Section 2..N -- one idea per section, each a scene in the same story]
+[Tension -> the scene -> the plain-language explanation -> real-world example ->
+cliffhanger into the next section.]
+
+## The Moral of the Story
+[3-5 bullets: the "if you remember nothing else" list, in story words.]
+
+RULES
+- 6-10 sections; adjust density for the target page count.
+- Vary block types. Never five paragraphs in a row.
+- Keep every fact from the user's notes.
+- Return raw Markdown only."""
+)
 
 
 def call_gemini(content: str, theme: str, max_retries: int = 5) -> str:
@@ -1357,13 +1403,147 @@ def translate_book(request: TranslateRequest):
 def preview_book(request: PreviewRequest):
     """Render the structured book to styled HTML for the in-app preview."""
     try:
+        if request.cover_image is not None and not bookmod._is_valid_cover_data_url(request.cover_image):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Invalid cover image: expected a PNG/JPEG data URL under 15MB. "
+                    "Re-select or generate a cover and try again."
+                ),
+            )
         template = _load_template(request.template_id)
-        html = bookmod.render_book_preview_html(request.book, template)
+        html = bookmod.render_book_preview_html(request.book, template, cover_image=request.cover_image)
         return {"html": html, "template_id": request.template_id}
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Preview failed: {str(e)}")
+
+
+# ---------------------------------------------------------------------------
+# Section-level AI editing (Book Studio)
+# ---------------------------------------------------------------------------
+
+_VALID_EDIT_ACTIONS = {
+    "edit",
+    "simplify",
+    "expand",
+    "add_examples",
+    "add_code",
+    "add_diagram",
+    "improve",
+    "regenerate",
+    "add_quiz",
+}
+
+
+def _gemini_edit_call(system_prompt: str, user_text: str) -> str:
+    """Thin adapter so editor.py reuses the shared key rotation/retry pipeline."""
+    return _call_gemini_parts(system_prompt, user_text, temperature=0.6)
+
+
+@app.post("/api/edit-section")
+def edit_section(request: EditSectionRequest):
+    """AI-edit a SINGLE section of an existing book and persist the result.
+
+    Only the targeted section is sent to Gemini; every other section is kept
+    byte-for-byte identical. On a malformed/invalid model response the original
+    book is returned unchanged (HTTP 422) so the ebook is never corrupted.
+    """
+    if not isinstance(request.section_index, int) or isinstance(request.section_index, bool):
+        raise HTTPException(status_code=400, detail="section_index must be an integer")
+    if request.action not in _VALID_EDIT_ACTIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown action '{request.action}'. Valid: {sorted(_VALID_EDIT_ACTIONS)}",
+        )
+
+    # Resolve the authoritative book: DB when configured, else the client payload.
+    book = None
+    if request.ebook_id and db.is_configured():
+        entry = db.get_ebook(request.ebook_id)
+        if entry and isinstance(entry.get("book"), dict):
+            book = entry["book"]
+    if book is None:
+        if not isinstance(request.book, dict):
+            raise HTTPException(
+                status_code=400,
+                detail="No book provided: pass ebook_id with a configured database, or send the book payload.",
+            )
+        book = request.book
+
+    sections = bookmod.book_sections(book)
+    if not (0 <= request.section_index < len(sections)):
+        raise HTTPException(
+            status_code=400,
+            detail=f"section_index {request.section_index} out of range (0..{len(sections) - 1})",
+        )
+
+    # Language: explicit param wins; otherwise infer from existing book text.
+    lang = request.language if request.language in ("en", "bn") else (
+        "bn" if bookmod._needs_bengali_font(book) else "en"
+    )
+
+    instruction = request.instruction
+    if request.action == "edit" and not instruction:
+        instruction = "Improve clarity, flow, and engagement while keeping the facts."
+
+    started = time.time()
+    try:
+        updated = editormod.edit_section_via_ai(
+            book,
+            request.section_index,
+            request.action,
+            instruction or "",
+            lang,
+            _gemini_edit_call,
+        )
+    except RateLimitError as e:
+        if _is_quota_error(str(e)):
+            raise _quota_error()
+        raise HTTPException(status_code=429, detail=str(e))
+    except ValueError as e:
+        # Invalid/malformed AI response — keep the original section unchanged.
+        raise HTTPException(
+            status_code=422,
+            detail=f"Edit failed, original section kept: {str(e)}",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Section edit failed: {str(e)}")
+
+    # Persist the edited book when a database is available.
+    if request.ebook_id and db.is_configured():
+        try:
+            pages = bookmod.estimate_pages(updated)
+            db.update_ebook_book(
+                request.ebook_id,
+                updated,
+                page_count=pages,
+                section_count=len(updated.get("sections", [])),
+            )
+        except Exception as e:
+            print(f"DB_UPDATE_EBOOK_FAILED {type(e).__name__}: {e}")
+
+    db.log_event(
+        "edit-section",
+        "ok",
+        ebook_id=request.ebook_id,
+        duration_ms=int((time.time() - started) * 1000),
+        detail=f"action={request.action} section={request.section_index} lang={lang}",
+    )
+    return {
+        "book": updated,
+        "section_index": request.section_index,
+        "section": updated["sections"][request.section_index],
+        "action": request.action,
+        "language": lang,
+        "ebook_id": request.ebook_id,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1378,10 +1558,20 @@ def download_pdf(request: DownloadRequest):
     if request.book:
         started = time.time()
         book_payload = request.book
+        if request.cover_image is not None and not bookmod._is_valid_cover_data_url(request.cover_image):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Invalid cover image: expected a PNG/JPEG data URL under 15MB. "
+                    "Re-select or generate a cover and try again."
+                ),
+            )
         try:
             template = _load_template(request.template_id)
             entries = bookmod.book_entries(book_payload)
-            document = bookmod.render_book_document(book_payload, template, page_map=None)
+            document = bookmod.render_book_document(
+                book_payload, template, page_map=None, cover_image=request.cover_image
+            )
             pdf_path = compile_document_to_pdf(document, entries, template=template)
             # Cleanup temp image files
             bookmod.cleanup_tmp_images(book_payload)

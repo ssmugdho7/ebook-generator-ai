@@ -5,10 +5,10 @@ import LoadingSpinner from "@/components/LoadingSpinner";
 import CoverGenerator from "@/components/CoverGenerator";
 import DownloadProgressModal from "@/components/DownloadProgressModal";
 import GenerateProgressModal from "@/components/GenerateProgressModal";
+import BookEditor from "@/components/BookEditor";
 import {
   getTemplates,
   generateBook,
-  getBookPreview,
   downloadBookPdf,
   getLibrary,
   getLibraryBook,
@@ -44,7 +44,6 @@ export default function Home() {
 
   const [book, setBook] = useState<Book | null>(null);
   const [ebookId, setEbookId] = useState<string | null>(null);
-  const [previewHtml, setPreviewHtml] = useState("");
   const [pageCount, setPageCount] = useState<number | null>(null);
 
   // Language: which version to produce.
@@ -60,6 +59,8 @@ export default function Home() {
   const [downloadStatus, setDownloadStatus] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [showCoverModal, setShowCoverModal] = useState(false);
+  // Selected client-side cover (PNG data URL) embedded as PDF page 1.
+  const [selectedCover, setSelectedCover] = useState<string | null>(null);
 
   const refreshLibrary = useCallback(async () => {
     try {
@@ -93,6 +94,46 @@ export default function Home() {
     };
   }, [refreshLibrary]);
 
+  // ---- Book Studio persistence (so an edited ebook stays editable on refresh) ----
+  const STUDIO_KEY = "ebook-studio-v1";
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STUDIO_KEY);
+      if (!raw) return;
+      const s = JSON.parse(raw);
+      if (s && s.book) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setBook(s.book);
+        setEbookId(s.ebook_id ?? null);
+        setTemplateId(s.template_id || "minimal-light");
+        setLanguage(s.language === "bn" ? "bn" : "en");
+        setSelectedCover(s.cover_image ?? null);
+      }
+    } catch {
+      /* ignore corrupt storage */
+    }
+    // run once on mount
+  }, []);
+
+  useEffect(() => {
+    if (!book) return;
+    try {
+      localStorage.setItem(
+        STUDIO_KEY,
+        JSON.stringify({
+          book,
+          ebook_id: ebookId,
+          template_id: templateId,
+          language,
+          cover_image: selectedCover,
+        })
+      );
+    } catch {
+      /* storage may be full/unavailable; non-fatal */
+    }
+  }, [book, ebookId, templateId, language, selectedCover]);
+
   const selectedTemplate = templates.find((t) => t.id === templateId);
 
   // Turn raw backend errors into something a reader can act on. Quota/rate-limit
@@ -116,13 +157,8 @@ export default function Home() {
     return msg;
   };
 
-  const refreshPreview = useCallback(async (b: Book) => {
-    try {
-      const html = await getBookPreview(b, b.template_id);
-      setPreviewHtml(html);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Preview failed");
-    }
+  const handleBookChange = useCallback((b: Book) => {
+    setBook(b);
   }, []);
 
   const handleGenerate = useCallback(async () => {
@@ -131,22 +167,27 @@ export default function Home() {
     setError(null);
     setBook(null);
     setEbookId(null);
-    setPreviewHtml("");
     setPageCount(null);
     setShowCoverModal(false);
+    setSelectedCover(null);
     try {
       const res = await generateBook(content, templateId, targetPages, language);
       setBook(res.book);
       setEbookId(res.ebook_id ?? null);
       setPageCount(res.page_count);
-      await refreshPreview(res.book);
       refreshLibrary();
     } catch (e) {
       setError(friendlyError(e, "Generation failed"));
     } finally {
       setIsGenerating(false);
     }
-  }, [content, templateId, targetPages, language, refreshPreview, refreshLibrary]);
+  }, [content, templateId, targetPages, language, refreshLibrary]);
+
+  const handleSelectCover = useCallback(async (dataUrl: string) => {
+    setSelectedCover(dataUrl);
+    setShowCoverModal(false);
+    setError(null);
+  }, []);
 
   const handleDownload = useCallback(async () => {
     if (!book) return;
@@ -166,10 +207,9 @@ export default function Home() {
         });
       }, 400);
       setDownloadStatus("Compiling PDF…");
-      await downloadBookPdf(book, book.template_id, ebookId, language);
+      await downloadBookPdf(book, book.template_id, ebookId, language, selectedCover);
       setDownloadProgress(100);
       setDownloadStatus("Download complete!");
-      setShowCoverModal(true);
       refreshLibrary();
     } catch (e) {
       setError(friendlyError(e, "PDF download failed"));
@@ -181,7 +221,7 @@ export default function Home() {
         setDownloadStatus("");
       }, 800);
     }
-  }, [book, language, ebookId, refreshPreview, refreshLibrary]);
+  }, [book, language, ebookId, selectedCover, refreshLibrary]);
 
   const handleOpenLibraryItem = useCallback(
     async (item: LibraryItem) => {
@@ -193,14 +233,13 @@ export default function Home() {
         setEbookId(entry.id);
         setPageCount(entry.page_count ?? null);
         setTemplateId(entry.book.template_id);
-        await refreshPreview(entry.book);
       } catch (e) {
         setError(friendlyError(e, "Could not open that ebook"));
       } finally {
         setBusyItemId(null);
       }
     },
-    [refreshPreview]
+    []
   );
 
   const handleStoredPdf = useCallback(async (item: LibraryItem) => {
@@ -521,19 +560,32 @@ export default function Home() {
                   )}
                 </p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => {
                     setBook(null);
                     setEbookId(null);
-                    setPreviewHtml("");
                     setPageCount(null);
+                    setSelectedCover(null);
                     setError(null);
                     refreshLibrary();
                   }}
                   className="rounded-xl border border-card-border bg-background px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-accent/10 hover:text-accent"
                 >
                   Start Over
+                </button>
+                <button
+                  onClick={() => setShowCoverModal(true)}
+                  className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors ${
+                    selectedCover
+                      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
+                      : "border-card-border bg-background text-foreground hover:bg-accent/10 hover:text-accent"
+                  }`}
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M4 4h16v12H4z" />
+                  </svg>
+                  {selectedCover ? "Change Cover" : "Choose Cover"}
                 </button>
                 <button
                   onClick={handleDownload}
@@ -556,27 +608,15 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Preview */}
-            <div className="rounded-2xl border border-card-border bg-card p-4 backdrop-blur-sm">
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-foreground">
-                  Live Preview
-                </h3>
-              </div>
-              <div className="h-[70vh] overflow-hidden rounded-xl border border-card-border bg-white">
-                {previewHtml ? (
-                  <iframe
-                    title="Book preview"
-                    srcDoc={previewHtml}
-                    className="h-full w-full border-0"
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center text-sm text-text-muted">
-                    Loading preview...
-                  </div>
-                )}
-              </div>
-            </div>
+            {/* Book Studio: section list · preview · AI controls */}
+            <BookEditor
+              book={book}
+              ebookId={ebookId}
+              templateId={book.template_id}
+              language={language}
+              coverImage={selectedCover}
+              onBookChange={handleBookChange}
+            />
 
             {error && (
               <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
@@ -597,6 +637,7 @@ export default function Home() {
           subtitle={book.subtitle || ""}
           template={templates.find((t) => t.id === book.template_id) ?? null}
           onClose={() => setShowCoverModal(false)}
+          onSelect={handleSelectCover}
         />
       )}
       <DownloadProgressModal
