@@ -42,7 +42,7 @@ export default function MermaidDiagram({ chart, id }: MermaidDiagramProps) {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to render diagram");
+          setError(err instanceof Error ? err.message : "Unable to render diagram");
         }
       }
     }
@@ -54,7 +54,7 @@ export default function MermaidDiagram({ chart, id }: MermaidDiagramProps) {
   if (error) {
     return (
       <div className="my-4 rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">
-        <p className="font-medium">Diagram rendering error</p>
+        <p className="font-medium">Unable to render diagram</p>
         <pre className="mt-1 whitespace-pre-wrap text-xs opacity-75">{error}</pre>
       </div>
     );

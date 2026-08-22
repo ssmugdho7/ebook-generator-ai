@@ -94,7 +94,7 @@ export default function Home() {
         if (ts.length > 0) setTemplateId(ts[0].id);
       } catch (e) {
         if (!cancelled) {
-          setError(e instanceof Error ? e.message : "Failed to load templates");
+          setError(e instanceof Error ? e.message : "Unable to load design templates. Please try again.");
         }
       }
       if (!cancelled) await refreshLibrary();
@@ -187,7 +187,7 @@ export default function Home() {
       setPageCount(res.page_count);
       refreshLibrary();
     } catch (e) {
-      setError(friendlyError(e, "Generation failed"));
+      setError(friendlyError(e, "Unable to generate ebook. Please try again."));
     } finally {
       setIsGenerating(false);
     }
@@ -222,7 +222,7 @@ export default function Home() {
       setDownloadStatus("Download complete!");
       refreshLibrary();
     } catch (e) {
-      setError(friendlyError(e, "PDF download failed"));
+      setError(friendlyError(e, "Unable to download PDF. Please try again."));
     } finally {
       if (progressTimer) clearInterval(progressTimer);
       setTimeout(() => {
@@ -244,7 +244,7 @@ export default function Home() {
         setPageCount(entry.page_count ?? null);
         setTemplateId(entry.book.template_id);
       } catch (e) {
-        setError(friendlyError(e, "Could not open that ebook"));
+        setError(friendlyError(e, "Unable to open ebook. Please try again."));
       } finally {
         setBusyItemId(null);
       }
@@ -258,7 +258,7 @@ export default function Home() {
     try {
       await downloadStoredPdf(item.id, item.title);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Stored PDF unavailable");
+      setError(e instanceof Error ? e.message : "Unable to download stored PDF. Please try again.");
     } finally {
       setBusyItemId(null);
     }
@@ -271,7 +271,7 @@ export default function Home() {
         await deleteLibraryItem(item.id);
         await refreshLibrary();
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Could not delete that ebook");
+        setError(e instanceof Error ? e.message : "Unable to delete ebook. Please try again.");
       } finally {
         setBusyItemId(null);
       }
@@ -329,8 +329,7 @@ export default function Home() {
             )}
           </div>
           <p className="mt-3 text-lg text-text-muted">
-            Your notes, retold as a story — one simple world, real characters, a
-            cliffhanger on every page
+            Transform your notes into beautifully crafted ebooks with AI
           </p>
         </header>
 
@@ -373,7 +372,7 @@ export default function Home() {
                 <textarea
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
-                  placeholder="Paste your rough notes, concepts, or code snippets. They come back as a story a 10-year-old could follow — and an adult can't put down."
+                  placeholder="Describe your topic, paste notes, or share code snippets — we'll turn them into a polished ebook."
                   className="h-72 w-full resize-none rounded-xl border border-card-border bg-background p-4 font-mono text-sm text-foreground placeholder-text-muted transition-colors focus:border-accent/50 focus:outline-none focus:ring-2 focus:ring-accent/20"
                 />
               </div>
@@ -563,7 +562,7 @@ export default function Home() {
                 }}
                 className="mt-4 rounded-xl border border-accent/40 bg-accent/10 px-5 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent/20"
               >
-                Sign in to view library
+                Sign in to get started
               </button>
             </div>
           </div>
@@ -577,7 +576,7 @@ export default function Home() {
                   Your Library
                 </h2>
                 <p className="mt-0.5 text-xs text-text-muted">
-                  Saved stories — reopen the preview or grab the stored PDF instantly
+                  Your saved ebooks — open the preview or download the PDF anytime
                 </p>
               </div>
               <button
@@ -726,8 +725,9 @@ export default function Home() {
           </div>
         )}
 
-        <footer className="mt-12 text-center text-xs text-text-muted">
-          AI Ebook Generator — Built with Next.js &amp; FastAPI
+        <footer className="mt-12 border-t border-card-border pt-6 text-center text-xs text-text-muted">
+          <p>Ebook Generator</p>
+          <p className="mt-1">Transform notes into publication-ready ebooks</p>
         </footer>
       </div>
 

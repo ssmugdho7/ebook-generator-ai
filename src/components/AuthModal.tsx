@@ -46,7 +46,7 @@ export default function AuthModal({ isOpen, onClose, message }: AuthModalProps) 
         }
         onClose();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Something went wrong");
+        setError(err instanceof Error ? err.message : "Unable to complete request. Please try again.");
       } finally {
         setSubmitting(false);
       }

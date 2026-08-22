@@ -88,6 +88,8 @@ export default function BookEditor({
   const runEdit = useCallback(
     async (action: EditAction, customInstruction?: string) => {
       if (isEditing) return;
+      // Combine quick action with any custom instruction the user typed
+      const effectiveInstruction = customInstruction || instruction.trim() || undefined;
       setIsEditing(true);
       setEditingAction(action);
       setError(null);
@@ -97,20 +99,20 @@ export default function BookEditor({
           book,
           section_index: selectedIndex,
           action,
-          instruction: customInstruction,
+          instruction: effectiveInstruction,
           language,
         });
         undoRef.current = book;
         setCanUndo(true);
         onBookChange(res.book);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Section edit failed");
+        setError(e instanceof Error ? e.message : "Unable to edit section. Please try again.");
       } finally {
         setIsEditing(false);
         setEditingAction(null);
       }
     },
-    [isEditing, ebookId, book, selectedIndex, language, onBookChange]
+    [isEditing, ebookId, book, selectedIndex, language, onBookChange, instruction]
   );
 
   const handleUndo = useCallback(() => {
@@ -167,7 +169,7 @@ export default function BookEditor({
         </div>
         <div className="h-[70vh] overflow-hidden rounded-xl border border-card-border bg-white">
           {previewHtml ? (
-            <iframe title="Book preview" srcDoc={previewHtml} className="h-full w-full border-0" />
+            <iframe title="Book preview" srcDoc={previewHtml} className="h-full w-full border-0" style={{ overflow: "auto" }} />
           ) : (
             <div className="flex h-full items-center justify-center text-sm text-text-muted">
               <LoadingSpinner size="sm" />

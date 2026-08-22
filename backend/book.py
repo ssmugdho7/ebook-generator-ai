@@ -600,12 +600,11 @@ def render_book_preview_html(book: dict, template: dict, cover_image: str = None
 
     img_count = body.count('<img ')
     placeholder_count = body.count('ebook-image-placeholder')
-    print(f"PREVIEW_DEBUG: img_tags={img_count}, placeholders={placeholder_count}")
 
     toc_items = []
     for sid, text in book_entries(book):
         toc_items.append(
-            f'<li><a href="#{sid}">{html_lib.escape(text)}</a></li>'
+            f'<li><a href="#{sid}" onclick="event.preventDefault();document.getElementById(\'{sid}\')?.scrollIntoView({{behavior:\'smooth\',block:\'start\'}});return false;">{html_lib.escape(text)}</a></li>'
         )
     toc_html = "".join(toc_items)
 
@@ -617,6 +616,7 @@ def render_book_preview_html(book: dict, template: dict, cover_image: str = None
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{html_lib.escape(book.get('title', 'Preview'))}</title>
 <style>
+html {{ scroll-behavior: smooth; }}
 html, body {{ margin: 0; padding: 0; }}
 body {{ padding: 24px; background: {template['palette']['page_bg']}; }}
 .fallback-diagram {{ display: block; margin: 3mm auto; max-width: 100%; height: auto; }}
@@ -637,6 +637,15 @@ body {{ padding: 24px; background: {template['palette']['page_bg']}; }}
   <h1 class="chapter-title" style="margin-top:0">{_inline(book.get('title', ''))}</h1>
   {f'<div class="preview-toc"><h2>Table of Contents</h2><ol>{toc_html}</ol></div>' if toc_html else ''}
   {body}
+  <script>
+  document.addEventListener('click',function(e){{
+    var a=e.target.closest('a[href^="#"]');
+    if(!a)return;
+    var id=a.getAttribute('href').slice(1);
+    var el=document.getElementById(id);
+    if(el){{e.preventDefault();el.scrollIntoView({{behavior:'smooth',block:'start'}});}}
+  }});
+  </script>
 </body>
 </html>"""
 

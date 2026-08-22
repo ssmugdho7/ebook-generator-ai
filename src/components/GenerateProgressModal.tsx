@@ -15,8 +15,7 @@ export default function GenerateProgressModal({ isOpen }: GenerateProgressModalP
           <h3 className="text-lg font-semibold text-foreground">Generating your ebook</h3>
         </div>
         <p className="mt-3 text-sm text-text-muted">
-          This usually takes a few seconds. The AI is writing your story,
-          fetching images, and laying out the pages.
+          The AI is writing your ebook, fetching images, and laying out the pages. This may take a moment.
         </p>
         <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-background">
           <div

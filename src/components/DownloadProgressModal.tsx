@@ -17,7 +17,7 @@ export default function DownloadProgressModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="w-full max-w-md rounded-2xl border border-card-border bg-card p-6 shadow-2xl">
         <h3 className="mb-4 text-lg font-semibold text-foreground">
-          Generating your PDF
+          Preparing your PDF
         </h3>
         <p className="mb-4 text-sm text-text-muted">{status}</p>
         <div className="h-3 w-full overflow-hidden rounded-full bg-background">

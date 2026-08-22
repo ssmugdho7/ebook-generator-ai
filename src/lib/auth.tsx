@@ -82,8 +82,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify({ email, password }),
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: "Login failed" }));
-      throw new Error(err.detail || "Login failed");
+      const err = await res.json().catch(() => ({ detail: "Login failed. Please check your credentials." }));
+      throw new Error(err.detail || "Login failed. Please check your credentials.");
     }
     const data = await res.json();
     localStorage.setItem(TOKEN_KEY, data.token);
@@ -98,8 +98,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify({ email, password }),
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: "Registration failed" }));
-      throw new Error(err.detail || "Registration failed");
+      const err = await res.json().catch(() => ({ detail: "Registration failed. Please try again." }));
+      throw new Error(err.detail || "Registration failed. Please try again.");
     }
     const data = await res.json();
     localStorage.setItem(TOKEN_KEY, data.token);

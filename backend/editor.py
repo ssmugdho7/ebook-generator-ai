@@ -284,10 +284,15 @@ _LANGUAGE_RULE = {
 # Per-action instructions appended to the system prompt.
 _ACTION_GUIDANCE = {
     "edit": (
-        "USER INSTRUCTION MODE: Rewrite the section to follow the user's "
-        "custom instruction below. Preserve the section's core topic and title "
-        "unless the instruction says otherwise. Improve clarity, flow, and "
-        "accuracy while keeping the same general length."
+        "USER INSTRUCTION MODE: You MUST follow the user's custom instruction "
+        "below precisely. This is the most important part of the task. The user "
+        "has written a specific instruction — read it carefully and apply it "
+        "exactly as described. Do NOT ignore, paraphrase, or substitute your own "
+        "idea of what is 'better'. If the user says 'add a paragraph about X', "
+        "add that paragraph. If the user says 'make it shorter', make it "
+        "shorter. If the user says 'rewrite in a casual tone', rewrite in a "
+        "casual tone. Preserve the section's core topic and title unless the "
+        "instruction explicitly says to change them."
     ),
     "simplify": (
         "SIMPLIFY: Rewrite the section using plain, everyday words a curious "
@@ -345,7 +350,7 @@ def _section_edit_system_prompt(action: str, lang: str, is_code: bool) -> str:
     return f"""You are an expert book editor improving ONE section of a structured ebook.
 {lang_rule}
 
-TASK
+CRITICAL: THE USER INSTRUCTION BELOW IS YOUR PRIMARY directive. Follow it EXACTLY.
 {guidance}
 {code_note}
 
@@ -380,9 +385,9 @@ def _section_edit_user_text(book, index, section, action, instruction) -> str:
     subtitle = book.get("subtitle", "")
     ctx = f"BOOK TITLE: {title}\nBOOK SUBTITLE: {subtitle}\n"
     if action == "edit" and instruction:
-        ctx += f"USER INSTRUCTION: {instruction}\n"
+        ctx += f"\n=== USER INSTRUCTION (MUST FOLLOW EXACTLY) ===\n{instruction}\n=== END INSTRUCTION ===\n"
     elif instruction:
-        ctx += f"EXTRA NOTE: {instruction}\n"
+        ctx += f"\nEXTRA NOTE: {instruction}\n"
     ctx += (
         f"\nEdit SECTION INDEX {index} (0-based). Current section JSON:\n"
         + json.dumps(section, ensure_ascii=False)

@@ -15,9 +15,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AI Ebook Generator — Turn Code Notes into Publication-Ready Ebooks",
+  title: "Ebook Generator — Transform Notes into Publication-Ready Ebooks",
   description:
-    "Transform rough coding concepts and messy code snippets into beautifully structured, publication-ready ebooks using AI.",
+    "Transform your notes, concepts, and code snippets into beautifully structured, publication-ready ebooks using AI.",
 };
 
 // Applied before first paint so a saved light preference never flashes dark.
