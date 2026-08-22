@@ -1052,9 +1052,10 @@ def generate_book_structure(
             "list, coffee order, bus route, photo gallery, to-do list, bank account, "
             "recipe, school timetable, WhatsApp group). Replace difficult words with "
             "simpler synonyms. Keep theory short and pair it with a concrete analogy.\n"
-            f"MINIMUM: You MUST generate at least {max(6, target_pages - 2)} sections, "
-            f"each with at least 4-8 blocks (paragraphs, code, callouts). "
-            f"Every section MUST have at least 2 paragraphs and 1 code block."
+            f"MINIMUM: You MUST generate at least {max(6, target_pages)} sections, "
+            f"each with at least 5-10 blocks (paragraphs, code, callouts, lists). "
+            f"Every section MUST have at least 3 paragraphs, 1 code block, and 1 callout. "
+            f"Each paragraph must be 3-5 sentences long. Total content MUST fill {target_pages} pages."
         )
     else:
         depth_guide = (
@@ -1062,8 +1063,10 @@ def generate_book_structure(
             "Focus on specific, concrete examples first. If you need more pages, "
             "add real-world case studies, personal stories, or practical exercises. "
             "Every section must teach something the reader can apply today.\n"
-            f"MINIMUM: You MUST generate at least {max(6, target_pages - 2)} sections, "
-            f"each with at least 3-6 paragraphs and 1 example or exercise. "
+            f"MINIMUM: You MUST generate at least {max(6, target_pages)} sections, "
+            f"each with at least 5-10 blocks (paragraphs, callouts, lists, tables). "
+            f"Every section MUST have at least 3 paragraphs, 1 callout, and 1 list or table. "
+            f"Each paragraph must be 3-5 sentences long with real examples. "
             f"Total content MUST fill {target_pages} pages."
         )
 

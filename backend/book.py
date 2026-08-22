@@ -681,31 +681,31 @@ def estimate_pages(book: dict) -> int:
     usable_mm = 259.0
     total_mm = 0.0
     for sec in book_sections(book):
-        total_mm += 16.0  # section heading + its top margin
+        total_mm += 18.0  # section heading + its top margin
         for block in sec.get("blocks", []):
             kind = block.get("type")
             if kind == "paragraph":
-                lines = max(1, math.ceil(len(block.get("text", "")) / 95))
-                total_mm += lines * 4.9 + 2.5
+                lines = max(1, math.ceil(len(block.get("text", "")) / 80))
+                total_mm += lines * 4.9 + 3.0
             elif kind == "subheading":
-                total_mm += 9.0
+                total_mm += 10.0
             elif kind == "code":
                 lines = len(block.get("code", "").splitlines()) or 1
-                total_mm += lines * 3.6 + 14.0
+                total_mm += lines * 3.6 + 16.0
             elif kind == "diagram":
-                total_mm += 55.0
+                total_mm += 60.0
             elif kind == "image":
-                total_mm += 65.0  # Images take more vertical space
+                total_mm += 70.0
             elif kind == "callout":
-                lines = max(1, math.ceil(len(block.get("text", "")) / 85))
-                total_mm += lines * 4.9 + 12.0
+                lines = max(1, math.ceil(len(block.get("text", "")) / 70))
+                total_mm += lines * 4.9 + 14.0
             elif kind == "list":
-                total_mm += len(block.get("items", [])) * 6.0 + 5.0
+                total_mm += len(block.get("items", [])) * 7.0 + 6.0
             elif kind == "table":
-                total_mm += (len(block.get("rows", [])) + 1) * 8.5 + 5.0
+                total_mm += (len(block.get("rows", [])) + 1) * 9.0 + 6.0
             elif kind == "quote":
-                lines = max(1, math.ceil(len(block.get("text", "")) / 85))
-                total_mm += lines * 4.9 + 9.0
+                lines = max(1, math.ceil(len(block.get("text", "")) / 70))
+                total_mm += lines * 4.9 + 10.0
     body_pages = max(1, math.ceil(total_mm / usable_mm))
     return body_pages + 2  # cover + table of contents
 
@@ -793,7 +793,7 @@ def adjust_to_page_target(book: dict, template: dict = None, target_pages: int =
     target_pages = max(1, int(target_pages))
     count = estimate_pages(book)
     too_long = count > max(target_pages + 2, int(target_pages * 1.3))
-    too_short = count < min(target_pages - 2, int(target_pages * 0.7))
+    too_short = count < target_pages - 2
 
     if not too_long and not too_short:
         return book
@@ -803,28 +803,42 @@ def adjust_to_page_target(book: dict, template: dict = None, target_pages: int =
             for block in sec["blocks"]:
                 if block["type"] == "paragraph":
                     _trim_paragraph(block)
-    elif too_short and count < target_pages:
-        # Expand: split paragraphs, add examples, duplicate short sections
-        _add_example_blocks(book, is_code_related_book(book))
-        for sec in book["sections"]:
-            new_blocks = []
-            for block in sec.get("blocks", []):
-                new_blocks.append(block)
-                if block["type"] == "paragraph" and len(block.get("text", "").split()) > 15:
-                    sentences = re.split(r"(?<=[.!?])\s+", block["text"].strip())
-                    if len(sentences) >= 4:
-                        mid = max(1, len(sentences) // 2)
-                        new_blocks.append(para(" ".join(sentences[mid:])))
-                        block["text"] = " ".join(sentences[:mid])
-            sec["blocks"] = new_blocks
-        # If still too short, duplicate the last section's content
-        if estimate_pages(book) < target_pages - 1 and len(book["sections"]) > 1:
-            last = book["sections"][-1]
-            clone = {
-                "title": last.get("title", "") + " (continued)",
-                "blocks": [dict(b) for b in last.get("blocks", [])],
-            }
-            book["sections"].append(clone)
+
+    elif too_short:
+        # Loop until we reach the target (max 5 iterations to prevent runaway)
+        for _iteration in range(5):
+            count = estimate_pages(book)
+            if count >= target_pages - 1:
+                break
+
+            # Strategy 1: Split long paragraphs into two
+            for sec in book["sections"]:
+                new_blocks = []
+                for block in sec.get("blocks", []):
+                    new_blocks.append(block)
+                    if block["type"] == "paragraph" and len(block.get("text", "").split()) > 12:
+                        sentences = re.split(r"(?<=[.!?])\s+", block["text"].strip())
+                        if len(sentences) >= 3:
+                            mid = max(1, len(sentences) // 2)
+                            new_blocks.append(para(" ".join(sentences[mid:])))
+                            block["text"] = " ".join(sentences[:mid])
+                sec["blocks"] = new_blocks
+
+            # Strategy 2: Add example callouts to sections that lack them
+            _add_example_blocks(book, is_code_related_book(book))
+
+            # Strategy 3: If still short, duplicate sections
+            count = estimate_pages(book)
+            if count < target_pages - 1 and len(book["sections"]) > 1:
+                deficit_pages = target_pages - count
+                # Duplicate up to `deficit_pages` sections worth of content
+                source_sections = [s for s in book["sections"] if len(s.get("blocks", [])) >= 3]
+                for src_sec in source_sections[:max(1, deficit_pages // 2)]:
+                    clone = {
+                        "title": src_sec.get("title", "") + " (continued)",
+                        "blocks": [dict(b) for b in src_sec.get("blocks", [])],
+                    }
+                    book["sections"].append(clone)
 
     return book
 
