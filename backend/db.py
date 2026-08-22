@@ -378,6 +378,46 @@ def get_pdf(ebook_id: str) -> Optional[bytes]:
         return None
 
 
+def update_ebook_book(
+    ebook_id: str,
+    book: dict,
+    page_count: Optional[int] = None,
+    section_count: Optional[int] = None,
+) -> bool:
+    """Persist an edited book (e.g. after a section-level AI edit).
+
+    Only the mutable `book`/`page_count` columns are touched, so the original
+    id/template/timestamps are preserved. Returns False (never raises) when the
+    database is unavailable or the row is missing.
+    """
+    if not is_configured() or not ebook_id:
+        return False
+    try:
+        with _connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE ebooks
+                       SET book = %s::jsonb,
+                           page_count = COALESCE(%s, page_count),
+                           section_count = COALESCE(%s, section_count)
+                     WHERE id = %s
+                    """,
+                    (
+                        json.dumps(book),
+                        int(page_count) if page_count is not None else None,
+                        int(section_count) if section_count is not None else None,
+                        ebook_id,
+                    ),
+                )
+                updated = cur.rowcount
+            conn.commit()
+        return bool(updated)
+    except Exception as e:
+        print(f"DB_UPDATE_EBOOK_FAILED {type(e).__name__}: {e}")
+        return False
+
+
 def delete_ebook(ebook_id: str) -> bool:
     if not is_configured():
         return False

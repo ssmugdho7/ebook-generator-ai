@@ -278,3 +278,54 @@ async function saveBlobAsFile(res: Response, filename: string): Promise<void> {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+/* -------------------------------------------------------------------------- */
+/* Book Studio — section-level AI editing                                     */
+/* -------------------------------------------------------------------------- */
+
+export type EditAction =
+  | "edit"
+  | "simplify"
+  | "expand"
+  | "add_examples"
+  | "add_code"
+  | "add_diagram"
+  | "improve"
+  | "regenerate"
+  | "add_quiz";
+
+export interface EditSectionResponse {
+  book: Book;
+  section_index: number;
+  section: Record<string, unknown>;
+  action: EditAction;
+  language: "en" | "bn";
+  ebook_id?: string | null;
+}
+
+export async function editSection(payload: {
+  ebook_id?: string | null;
+  book: Book;
+  section_index: number;
+  action: EditAction;
+  instruction?: string;
+  language?: "en" | "bn";
+}): Promise<EditSectionResponse> {
+  const res = await fetch(`${API_BASE}/api/edit-section`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ebook_id: payload.ebook_id ?? null,
+      book: payload.book,
+      section_index: payload.section_index,
+      action: payload.action,
+      instruction: payload.instruction ?? null,
+      language: payload.language ?? "en",
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Section edit failed" }));
+    throw new Error(err.detail || "Section edit failed");
+  }
+  return res.json();
+}

@@ -5,10 +5,10 @@ import LoadingSpinner from "@/components/LoadingSpinner";
 import CoverGenerator from "@/components/CoverGenerator";
 import DownloadProgressModal from "@/components/DownloadProgressModal";
 import GenerateProgressModal from "@/components/GenerateProgressModal";
+import BookEditor from "@/components/BookEditor";
 import {
   getTemplates,
   generateBook,
-  getBookPreview,
   downloadBookPdf,
   getLibrary,
   getLibraryBook,
@@ -44,7 +44,6 @@ export default function Home() {
 
   const [book, setBook] = useState<Book | null>(null);
   const [ebookId, setEbookId] = useState<string | null>(null);
-  const [previewHtml, setPreviewHtml] = useState("");
   const [pageCount, setPageCount] = useState<number | null>(null);
 
   // Language: which version to produce.
@@ -95,6 +94,46 @@ export default function Home() {
     };
   }, [refreshLibrary]);
 
+  // ---- Book Studio persistence (so an edited ebook stays editable on refresh) ----
+  const STUDIO_KEY = "ebook-studio-v1";
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STUDIO_KEY);
+      if (!raw) return;
+      const s = JSON.parse(raw);
+      if (s && s.book) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setBook(s.book);
+        setEbookId(s.ebook_id ?? null);
+        setTemplateId(s.template_id || "minimal-light");
+        setLanguage(s.language === "bn" ? "bn" : "en");
+        setSelectedCover(s.cover_image ?? null);
+      }
+    } catch {
+      /* ignore corrupt storage */
+    }
+    // run once on mount
+  }, []);
+
+  useEffect(() => {
+    if (!book) return;
+    try {
+      localStorage.setItem(
+        STUDIO_KEY,
+        JSON.stringify({
+          book,
+          ebook_id: ebookId,
+          template_id: templateId,
+          language,
+          cover_image: selectedCover,
+        })
+      );
+    } catch {
+      /* storage may be full/unavailable; non-fatal */
+    }
+  }, [book, ebookId, templateId, language, selectedCover]);
+
   const selectedTemplate = templates.find((t) => t.id === templateId);
 
   // Turn raw backend errors into something a reader can act on. Quota/rate-limit
@@ -118,13 +157,8 @@ export default function Home() {
     return msg;
   };
 
-  const refreshPreview = useCallback(async (b: Book, cover?: string | null) => {
-    try {
-      const html = await getBookPreview(b, b.template_id, cover ?? null);
-      setPreviewHtml(html);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Preview failed");
-    }
+  const handleBookChange = useCallback((b: Book) => {
+    setBook(b);
   }, []);
 
   const handleGenerate = useCallback(async () => {
@@ -133,7 +167,6 @@ export default function Home() {
     setError(null);
     setBook(null);
     setEbookId(null);
-    setPreviewHtml("");
     setPageCount(null);
     setShowCoverModal(false);
     setSelectedCover(null);
@@ -142,21 +175,19 @@ export default function Home() {
       setBook(res.book);
       setEbookId(res.ebook_id ?? null);
       setPageCount(res.page_count);
-      await refreshPreview(res.book);
       refreshLibrary();
     } catch (e) {
       setError(friendlyError(e, "Generation failed"));
     } finally {
       setIsGenerating(false);
     }
-  }, [content, templateId, targetPages, language, refreshPreview, refreshLibrary]);
+  }, [content, templateId, targetPages, language, refreshLibrary]);
 
   const handleSelectCover = useCallback(async (dataUrl: string) => {
     setSelectedCover(dataUrl);
     setShowCoverModal(false);
     setError(null);
-    if (book) await refreshPreview(book, dataUrl);
-  }, [book, refreshPreview]);
+  }, []);
 
   const handleDownload = useCallback(async () => {
     if (!book) return;
@@ -202,14 +233,13 @@ export default function Home() {
         setEbookId(entry.id);
         setPageCount(entry.page_count ?? null);
         setTemplateId(entry.book.template_id);
-        await refreshPreview(entry.book);
       } catch (e) {
         setError(friendlyError(e, "Could not open that ebook"));
       } finally {
         setBusyItemId(null);
       }
     },
-    [refreshPreview]
+    []
   );
 
   const handleStoredPdf = useCallback(async (item: LibraryItem) => {
@@ -535,7 +565,6 @@ export default function Home() {
                   onClick={() => {
                     setBook(null);
                     setEbookId(null);
-                    setPreviewHtml("");
                     setPageCount(null);
                     setSelectedCover(null);
                     setError(null);
@@ -579,27 +608,15 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Preview */}
-            <div className="rounded-2xl border border-card-border bg-card p-4 backdrop-blur-sm">
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-foreground">
-                  Live Preview
-                </h3>
-              </div>
-              <div className="h-[70vh] overflow-hidden rounded-xl border border-card-border bg-white">
-                {previewHtml ? (
-                  <iframe
-                    title="Book preview"
-                    srcDoc={previewHtml}
-                    className="h-full w-full border-0"
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center text-sm text-text-muted">
-                    Loading preview...
-                  </div>
-                )}
-              </div>
-            </div>
+            {/* Book Studio: section list · preview · AI controls */}
+            <BookEditor
+              book={book}
+              ebookId={ebookId}
+              templateId={book.template_id}
+              language={language}
+              coverImage={selectedCover}
+              onBookChange={handleBookChange}
+            />
 
             {error && (
               <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
