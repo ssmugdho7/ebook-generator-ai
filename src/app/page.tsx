@@ -6,6 +6,8 @@ import CoverGenerator from "@/components/CoverGenerator";
 import DownloadProgressModal from "@/components/DownloadProgressModal";
 import GenerateProgressModal from "@/components/GenerateProgressModal";
 import BookEditor from "@/components/BookEditor";
+import AuthModal from "@/components/AuthModal";
+import { useAuth } from "@/lib/auth";
 import {
   getTemplates,
   generateBook,
@@ -27,6 +29,10 @@ const LANGUAGES: { id: EbookLanguage; label: string }[] = [
   { id: "bn", label: "বাংলা (Bengali)" },
 ];
 
+/** Features that require a logged-in account. */
+const GATED_PAGES = new Set([15, 20]);
+const GATED_LANGUAGES = new Set<EbookLanguage>(["bn"]);
+
 const SAMPLE_CONTENT = `# React Hooks Deep Dive
 
 I want a full chapter on React hooks: useState, useEffect, useMemo, useCallback, useRef.
@@ -37,6 +43,10 @@ Tell it like a story a teacher would tell in class — one simple everyday world
 a couple of characters, and a cliffhanger at the end of every section.`;
 
 export default function Home() {
+  const { user, loading: authLoading, logout } = useAuth();
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authModalMessage, setAuthModalMessage] = useState("");
+
   const [templates, setTemplates] = useState<TemplateInfo[]>([]);
   const [content, setContent] = useState("");
   const [templateId, setTemplateId] = useState("minimal-light");
@@ -284,9 +294,40 @@ export default function Home() {
             </span>
             AI-Powered
           </div>
-          <h1 className="text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
-            Ebook Generator
-          </h1>
+          <div className="flex items-center justify-center gap-4">
+            <h1 className="text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
+              Ebook Generator
+            </h1>
+            {!authLoading && (
+              <div className="hidden sm:block">
+                {user ? (
+                  <div className="flex items-center gap-2 rounded-full border border-card-border bg-card px-3 py-1.5 text-xs">
+                    <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                    <span className="text-text-muted">{user.email}</span>
+                    <button
+                      onClick={logout}
+                      className="ml-1 text-text-muted transition-colors hover:text-red-400"
+                      title="Sign out"
+                    >
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                      </svg>
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setAuthModalMessage("");
+                      setAuthModalOpen(true);
+                    }}
+                    className="rounded-full border border-accent/30 bg-accent/10 px-4 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/20"
+                  >
+                    Sign in
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
           <p className="mt-3 text-lg text-text-muted">
             Your notes, retold as a story — one simple world, real characters, a
             cliffhanger on every page
@@ -342,19 +383,36 @@ export default function Home() {
                   Target Length
                 </h2>
                 <div className="flex flex-wrap gap-2">
-                  {PAGE_COUNTS.map((n) => (
-                    <button
-                      key={n}
-                      onClick={() => setTargetPages(n)}
-                      className={`rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors ${
-                        targetPages === n
-                          ? "border-accent/60 bg-accent/10 text-accent"
-                          : "border-card-border bg-background text-text-muted hover:border-accent/30 hover:text-foreground"
-                      }`}
-                    >
-                      {n} pages
-                    </button>
-                  ))}
+                  {PAGE_COUNTS.map((n) => {
+                    const isLocked = !user && GATED_PAGES.has(n);
+                    return (
+                      <button
+                        key={n}
+                        onClick={() => {
+                          if (isLocked) {
+                            setAuthModalMessage("Sign in to generate longer ebooks (15 or 20 pages).");
+                            setAuthModalOpen(true);
+                            return;
+                          }
+                          setTargetPages(n);
+                        }}
+                        className={`relative rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors ${
+                          targetPages === n && !isLocked
+                            ? "border-accent/60 bg-accent/10 text-accent"
+                            : isLocked
+                              ? "cursor-not-allowed border-card-border/50 bg-background/50 text-text-muted/50"
+                              : "border-card-border bg-background text-text-muted hover:border-accent/30 hover:text-foreground"
+                        }`}
+                      >
+                        {isLocked && (
+                          <svg className="absolute -top-1.5 -right-1.5 h-3.5 w-3.5 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                        {n} pages
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -367,19 +425,36 @@ export default function Home() {
                   identifiers stay English; only the story is translated.
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  {LANGUAGES.map((l) => (
-                    <button
-                      key={l.id}
-                      onClick={() => setLanguage(l.id)}
-                      className={`rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors ${
-                        language === l.id
-                          ? "border-accent/60 bg-accent/10 text-accent"
-                          : "border-card-border bg-background text-text-muted hover:border-accent/30 hover:text-foreground"
-                      }`}
-                    >
-                      {l.label}
-                    </button>
-                  ))}
+                  {LANGUAGES.map((l) => {
+                    const isLocked = !user && GATED_LANGUAGES.has(l.id);
+                    return (
+                      <button
+                        key={l.id}
+                        onClick={() => {
+                          if (isLocked) {
+                            setAuthModalMessage("Sign in to generate ebooks in Bengali.");
+                            setAuthModalOpen(true);
+                            return;
+                          }
+                          setLanguage(l.id);
+                        }}
+                        className={`relative rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors ${
+                          language === l.id && !isLocked
+                            ? "border-accent/60 bg-accent/10 text-accent"
+                            : isLocked
+                              ? "cursor-not-allowed border-card-border/50 bg-background/50 text-text-muted/50"
+                              : "border-card-border bg-background text-text-muted hover:border-accent/30 hover:text-foreground"
+                        }`}
+                      >
+                        {isLocked && (
+                          <svg className="absolute -top-1.5 -right-1.5 h-3.5 w-3.5 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                        {l.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -469,7 +544,32 @@ export default function Home() {
         )}
 
         {/* Library — recent ebooks kept in Neon Postgres */}
-        {!book && libraryEnabled && library.length > 0 && (
+        {!book && !user && !authLoading && (
+          <div className="mt-8 rounded-2xl border border-card-border bg-card p-6 backdrop-blur-sm">
+            <div className="flex flex-col items-center text-center">
+              <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full border border-accent/30 bg-accent/10">
+                <svg className="h-6 w-6 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                </svg>
+              </div>
+              <h3 className="text-base font-semibold text-foreground">Your Library</h3>
+              <p className="mt-1 max-w-sm text-sm text-text-muted">
+                Sign in to save your generated ebooks and access them anytime from any device.
+              </p>
+              <button
+                onClick={() => {
+                  setAuthModalMessage("Sign in to save and access your ebook library.");
+                  setAuthModalOpen(true);
+                }}
+                className="mt-4 rounded-xl border border-accent/40 bg-accent/10 px-5 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent/20"
+              >
+                Sign in to view library
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!book && user && libraryEnabled && library.length > 0 && (
           <div className="mt-8 rounded-2xl border border-card-border bg-card p-6 backdrop-blur-sm">
             <div className="mb-4 flex items-center justify-between">
               <div>
@@ -646,6 +746,11 @@ export default function Home() {
         status={downloadStatus}
       />
       <GenerateProgressModal isOpen={isGenerating} />
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        message={authModalMessage || undefined}
+      />
     </div>
   );
 }

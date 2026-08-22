@@ -7,9 +7,11 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
+from typing import Optional
+import auth as authmod
 from google import genai
 from google.genai import types
 from pydantic import BaseModel
@@ -72,7 +74,33 @@ app.add_middleware(
     allow_credentials=_origins != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition", "Content-Length"],
 )
+
+
+# ---------------------------------------------------------------------------
+# Auth helpers
+# ---------------------------------------------------------------------------
+
+
+def _get_current_user(authorization: Optional[str] = Header(None)) -> Optional[dict]:
+    """Extract and validate JWT from Authorization header. Returns user dict or None."""
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization[7:]
+    payload = authmod.decode_token(token)
+    if not payload or "sub" not in payload:
+        return None
+    user = db.get_user_by_id(payload["sub"])
+    return user
+
+
+def _require_user(authorization: Optional[str] = Header(None)) -> dict:
+    """Like _get_current_user but raises 401 if not authenticated."""
+    user = _get_current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Login required")
+    return user
 
 key_manager = create_key_manager()
 
@@ -234,6 +262,60 @@ def _require_keys() -> None:
                 "Get keys at https://aistudio.google.com/apikey"
             ),
         )
+
+
+# ---------------------------------------------------------------------------
+# Auth endpoints
+# ---------------------------------------------------------------------------
+
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+@app.post("/api/auth/register")
+def register(request: RegisterRequest):
+    email = request.email.strip().lower()
+    password = request.password
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Invalid email address")
+    if len(password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    existing = db.get_user_by_email(email)
+    if existing:
+        raise HTTPException(status_code=409, detail="An account with this email already exists")
+    user = db.create_user(email, authmod.hash_password(password))
+    if not user:
+        raise HTTPException(status_code=500, detail="Failed to create account")
+    token = authmod.create_token(user["id"], user["email"])
+    return {"token": token, "user": {"id": user["id"], "email": user["email"]}}
+
+
+@app.post("/api/auth/login")
+def login(request: LoginRequest):
+    email = request.email.strip().lower()
+    password = request.password
+    if not email or not password:
+        raise HTTPException(status_code=400, detail="Email and password are required")
+    user = db.get_user_by_email(email)
+    if not user or not authmod.verify_password(password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    token = authmod.create_token(user["id"], user["email"])
+    return {"token": token, "user": {"id": user["id"], "email": user["email"]}}
+
+
+@app.get("/api/auth/me")
+def auth_me(authorization: Optional[str] = Header(None)):
+    user = _get_current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return {"user": {"id": user["id"], "email": user["email"]}}
 
 
 
@@ -1313,7 +1395,7 @@ async def list_templates():
 
 
 @app.post("/api/generate-book")
-def generate_book(request: BookRequest):
+def generate_book(request: BookRequest, authorization: Optional[str] = Header(None)):
     """Generate a structured book outline and verify/adjust real page count.
 
     The finished outline is saved to Neon (when configured) so the reader can
@@ -1326,6 +1408,11 @@ def generate_book(request: BookRequest):
     language = request.language if request.language in ("en", "bn") else "en"
     template = _load_template(request.template_id)
     started = time.time()
+
+    # Resolve user (optional — library only visible to logged-in users)
+    user = _get_current_user(authorization)
+    user_id = user["id"] if user else None
+
     try:
         primary_lang = "bn" if language == "bn" else "en"
         book = generate_book_structure(
@@ -1338,6 +1425,7 @@ def generate_book(request: BookRequest):
             target_pages=request.target_pages,
             page_count=pages,
             source_content=request.content,
+            user_id=user_id,
         )
         db.log_event(
             "generate-book",
@@ -1648,29 +1736,40 @@ def _pdf_response(pdf_path: str, filename: str, ebook_id: Optional[str]) -> Resp
 
 
 @app.get("/api/library")
-def library(limit: int = 12):
-    """Recent ebooks. Returns an empty list (never an error) when no database is
-    configured, so the UI degrades gracefully."""
+def library(limit: int = 12, authorization: Optional[str] = Header(None)):
+    """Recent ebooks for the authenticated user. Returns empty for guests."""
+    user = _get_current_user(authorization)
+    if not user:
+        return {"items": [], "database": db.is_configured()}
     return {
-        "items": db.list_ebooks(limit),
+        "items": db.list_ebooks(limit, user_id=user["id"]),
         "database": db.is_configured(),
     }
 
 
 @app.get("/api/library/{ebook_id}")
-def library_item(ebook_id: str):
+def library_item(ebook_id: str, authorization: Optional[str] = Header(None)):
+    user = _require_user(authorization)
     entry = db.get_ebook(ebook_id)
     if not entry:
         raise HTTPException(status_code=404, detail="Ebook not found")
+    # Verify ownership
+    owner_id = entry.get("user_id")
+    if owner_id and owner_id != user["id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
     return entry
 
 
 @app.get("/api/library/{ebook_id}/pdf")
-def library_pdf(ebook_id: str):
+def library_pdf(ebook_id: str, authorization: Optional[str] = Header(None)):
     """Serve the stored PDF — no Gemini call, no Chromium render, instant."""
+    user = _require_user(authorization)
     entry = db.get_ebook(ebook_id)
     if not entry:
         raise HTTPException(status_code=404, detail="Ebook not found")
+    owner_id = entry.get("user_id")
+    if owner_id and owner_id != user["id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
     data = db.get_pdf(ebook_id)
     if not data:
         raise HTTPException(
@@ -1688,7 +1787,14 @@ def library_pdf(ebook_id: str):
 
 
 @app.delete("/api/library/{ebook_id}")
-def library_delete(ebook_id: str):
+def library_delete(ebook_id: str, authorization: Optional[str] = Header(None)):
+    user = _require_user(authorization)
+    entry = db.get_ebook(ebook_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Ebook not found")
+    owner_id = entry.get("user_id")
+    if owner_id and owner_id != user["id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
     if not db.delete_ebook(ebook_id):
         raise HTTPException(status_code=404, detail="Ebook not found")
     return {"deleted": ebook_id}

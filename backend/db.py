@@ -29,6 +29,13 @@ _LAST_ERROR: Optional[str] = None
 
 
 SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS users (
+    id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    email          text        NOT NULL UNIQUE,
+    password_hash  text        NOT NULL,
+    created_at     timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS ebooks (
     id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     title          text        NOT NULL,
@@ -40,6 +47,7 @@ CREATE TABLE IF NOT EXISTS ebooks (
     source_content text,
     book           jsonb       NOT NULL,
     book_bn        jsonb,
+    user_id        uuid        REFERENCES users(id) ON DELETE SET NULL,
     created_at     timestamptz NOT NULL DEFAULT now()
 );
 
@@ -148,12 +156,41 @@ def init_schema() -> bool:
     try:
         with _connection() as conn:
             with conn.cursor() as cur:
+                # Step 1: Create users table first (needed by ebooks FK).
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                        email          text        NOT NULL UNIQUE,
+                        password_hash  text        NOT NULL,
+                        created_at     timestamptz NOT NULL DEFAULT now()
+                    );
+                """)
+                conn.commit()
+                print("DB_STEP: users table ready")
+
+                # Step 2: Create base tables.
                 cur.execute(SCHEMA_SQL)
-                # Add columns introduced after the initial schema (idempotent).
+                conn.commit()
+                print("DB_STEP: base schema ready")
+
+                # Step 3: Add columns introduced after the initial schema (idempotent).
                 cur.execute(
                     "ALTER TABLE ebooks ADD COLUMN IF NOT EXISTS book_bn jsonb"
                 )
-            conn.commit()
+                conn.commit()
+
+                cur.execute(
+                    "ALTER TABLE ebooks ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES users(id) ON DELETE SET NULL"
+                )
+                conn.commit()
+                print("DB_STEP: user_id column ready")
+
+                cur.execute(
+                    "CREATE INDEX IF NOT EXISTS ebooks_user_id_idx ON ebooks (user_id)"
+                )
+                conn.commit()
+                print("DB_STEP: user_id index ready")
+
         _SCHEMA_READY = True
         _LAST_ERROR = None
         print("DB_READY: Neon schema verified")
@@ -183,6 +220,72 @@ def health() -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Auth helpers
+# ---------------------------------------------------------------------------
+
+
+def create_user(email: str, password_hash: str) -> Optional[Dict[str, Any]]:
+    """Register a new user. Returns {id, email} or None on failure/duplicate."""
+    if not is_configured():
+        return None
+    try:
+        with _connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO users (email, password_hash) VALUES (%s, %s) RETURNING id, email",
+                    (email.lower().strip(), password_hash),
+                )
+                row = cur.fetchone()
+            conn.commit()
+        if row:
+            return {"id": str(row[0]), "email": row[1]}
+        return None
+    except Exception as e:
+        print(f"DB_CREATE_USER_FAILED {type(e).__name__}: {e}")
+        return None
+
+
+def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
+    """Lookup user by email. Returns {id, email, password_hash} or None."""
+    if not is_configured():
+        return None
+    try:
+        with _connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, email, password_hash FROM users WHERE email = %s",
+                    (email.lower().strip(),),
+                )
+                row = cur.fetchone()
+        if row:
+            return {"id": str(row[0]), "email": row[1], "password_hash": row[2]}
+        return None
+    except Exception as e:
+        print(f"DB_GET_USER_FAILED {type(e).__name__}: {e}")
+        return None
+
+
+def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
+    """Lookup user by id. Returns {id, email} or None."""
+    if not is_configured():
+        return None
+    try:
+        with _connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, email FROM users WHERE id = %s",
+                    (user_id,),
+                )
+                row = cur.fetchone()
+        if row:
+            return {"id": str(row[0]), "email": row[1]}
+        return None
+    except Exception as e:
+        print(f"DB_GET_USER_BY_ID_FAILED {type(e).__name__}: {e}")
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Writes (fire-and-forget: a DB hiccup must never break a generation)
 # ---------------------------------------------------------------------------
 
@@ -194,6 +297,7 @@ def save_ebook(
     page_count: Optional[int],
     source_content: str = "",
     book_bn: Optional[dict] = None,
+    user_id: Optional[str] = None,
 ) -> Optional[str]:
     """Insert a generated book; returns its id (uuid string) or None."""
     if not is_configured():
@@ -204,8 +308,8 @@ def save_ebook(
                 cur.execute(
                     """
                     INSERT INTO ebooks (title, subtitle, template_id, target_pages,
-                                        page_count, section_count, source_content, book, book_bn)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
+                                        page_count, section_count, source_content, book, book_bn, user_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s)
                     RETURNING id
                     """,
                     (
@@ -218,6 +322,7 @@ def save_ebook(
                         (source_content or "")[:20000],
                         json.dumps(book),
                         json.dumps(book_bn) if book_bn else None,
+                        user_id,
                     ),
                 )
                 new_id = cur.fetchone()[0]
@@ -282,26 +387,42 @@ def log_event(
 # ---------------------------------------------------------------------------
 
 
-def list_ebooks(limit: int = 20) -> List[Dict[str, Any]]:
-    """Recent library entries (no book JSON, no PDF bytes — keep it light)."""
+def list_ebooks(limit: int = 20, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Recent library entries (no book JSON, no PDF bytes — keep it light).
+    When user_id is provided, only returns that user's ebooks."""
     if not is_configured():
         return []
     limit = max(1, min(int(limit), 100))
     try:
         with _connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT e.id, e.title, e.subtitle, e.template_id, e.target_pages,
-                           e.page_count, e.section_count, e.created_at,
-                           (p.ebook_id IS NOT NULL) AS has_pdf, p.byte_size
-                    FROM ebooks e
-                    LEFT JOIN ebook_pdfs p ON p.ebook_id = e.id
-                    ORDER BY e.created_at DESC
-                    LIMIT %s
-                    """,
-                    (limit,),
-                )
+                if user_id:
+                    cur.execute(
+                        """
+                        SELECT e.id, e.title, e.subtitle, e.template_id, e.target_pages,
+                               e.page_count, e.section_count, e.created_at,
+                               (p.ebook_id IS NOT NULL) AS has_pdf, p.byte_size
+                        FROM ebooks e
+                        LEFT JOIN ebook_pdfs p ON p.ebook_id = e.id
+                        WHERE e.user_id = %s
+                        ORDER BY e.created_at DESC
+                        LIMIT %s
+                        """,
+                        (user_id, limit),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        SELECT e.id, e.title, e.subtitle, e.template_id, e.target_pages,
+                               e.page_count, e.section_count, e.created_at,
+                               (p.ebook_id IS NOT NULL) AS has_pdf, p.byte_size
+                        FROM ebooks e
+                        LEFT JOIN ebook_pdfs p ON p.ebook_id = e.id
+                        ORDER BY e.created_at DESC
+                        LIMIT %s
+                        """,
+                        (limit,),
+                    )
                 rows = cur.fetchall()
         return [
             {

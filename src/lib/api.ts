@@ -22,6 +22,20 @@ function resolveApiBase(): string {
 
 const API_BASE = resolveApiBase();
 
+/** Get auth token from localStorage (lazy import to avoid SSR issues). */
+function _authToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("ebook-auth-token");
+}
+
+/** Build headers with optional auth token. */
+function _authHeaders(extra?: Record<string, string>): Record<string, string> {
+  const h: Record<string, string> = { ...extra };
+  const tok = _authToken();
+  if (tok) h["Authorization"] = `Bearer ${tok}`;
+  return h;
+}
+
 export { API_BASE };
 
 export async function generateEbook(
@@ -117,7 +131,7 @@ export type EbookLanguage = "en" | "bn";
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: _authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -128,7 +142,9 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
 }
 
 export async function getTemplates(): Promise<TemplateInfo[]> {
-  const res = await fetch(`${API_BASE}/api/templates`);
+  const res = await fetch(`${API_BASE}/api/templates`, {
+    headers: _authHeaders(),
+  });
   if (!res.ok) {
     throw new Error("Failed to load templates");
   }
@@ -192,7 +208,7 @@ export async function downloadBookPdf(
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/api/download-pdf`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: _authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({
       book,
       template_id: templateId,
@@ -230,7 +246,9 @@ export interface LibraryItem {
 export async function getLibrary(
   limit = 12
 ): Promise<{ items: LibraryItem[]; database: boolean }> {
-  const res = await fetch(`${API_BASE}/api/library?limit=${limit}`);
+  const res = await fetch(`${API_BASE}/api/library?limit=${limit}`, {
+    headers: _authHeaders(),
+  });
   if (!res.ok) return { items: [], database: false };
   return res.json();
 }
@@ -238,14 +256,18 @@ export async function getLibrary(
 export async function getLibraryBook(
   id: string
 ): Promise<{ id: string; book: Book; page_count: number | null }> {
-  const res = await fetch(`${API_BASE}/api/library/${id}`);
+  const res = await fetch(`${API_BASE}/api/library/${id}`, {
+    headers: _authHeaders(),
+  });
   if (!res.ok) throw new Error("Could not open that ebook");
   return res.json();
 }
 
 /** Instant download: the stored PDF is streamed from Postgres, no re-render. */
 export async function downloadStoredPdf(id: string, title: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/library/${id}/pdf`);
+  const res = await fetch(`${API_BASE}/api/library/${id}/pdf`, {
+    headers: _authHeaders(),
+  });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "PDF not stored yet" }));
     throw new Error(err.detail || "PDF not stored yet");
@@ -254,7 +276,10 @@ export async function downloadStoredPdf(id: string, title: string): Promise<void
 }
 
 export async function deleteLibraryItem(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/library/${id}`, { method: "DELETE" });
+  const res = await fetch(`${API_BASE}/api/library/${id}`, {
+    method: "DELETE",
+    headers: _authHeaders(),
+  });
   if (!res.ok) throw new Error("Could not delete that ebook");
 }
 
