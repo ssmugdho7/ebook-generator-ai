@@ -49,3 +49,5 @@ backend/__pycache__/
 backend/*.pyc
 backend/assets/*.pdf
 backend/assets/debug.html
+backend/backend.log
+frontend.log
