@@ -55,6 +55,8 @@ def _allowed_origins() -> list:
             continue
         if not origin.startswith(("http://", "https://")):
             local = origin.startswith(("localhost", "127.0.0.1", "0.0.0.0"))
+            if not local and "." not in origin:
+                origin += ".onrender.com"
             origin = ("http://" if local else "https://") + origin
         origins.append(origin)
     return origins or ["*"]

@@ -30,11 +30,8 @@ services:
         sync: false
 
       # --- wiring / tuning ---
-      - key: ALLOWED_ORIGINS # lock CORS to the frontend service automatically
-        fromService:
-          name: ebook-web
-          type: web
-          property: host
+      - key: ALLOWED_ORIGINS
+        value: https://ebook-web-h2q3.onrender.com
       - key: PAGE_VERIFY
         value: "false" # false = fast page estimate (recommended on free/small plans)
       - key: PDF_OUTPUT_DIR
