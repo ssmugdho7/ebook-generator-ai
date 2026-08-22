@@ -146,8 +146,7 @@ export default function Home() {
 
   const selectedTemplate = templates.find((t) => t.id === templateId);
 
-  // Turn raw backend errors into something a reader can act on. Quota/rate-limit
-  // errors now get a calm, helpful message instead of a raw Google stack string.
+  // Turn raw backend errors into something a reader can act on.
   const friendlyError = (e: unknown, fallback: string): string => {
     const msg = e instanceof Error ? e.message : fallback;
     // Our daily generation limit
@@ -161,11 +160,7 @@ export default function Home() {
       /rate.?limit/i.test(msg)
     ) {
       return (
-        "You've hit Gemini's free-tier daily limit (20 requests/day per model). " +
-        "This is a Google quota, not a bug — generation works again after the " +
-        "daily reset (≈24h from your first request today). To continue now, add a " +
-        "paid Gemini key, or set GEMINI_MODEL_FALLBACKS to another model you have " +
-        "quota on."
+        "We're experiencing high demand right now. Please try again in a few minutes."
       );
     }
     return msg;

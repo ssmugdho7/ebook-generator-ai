@@ -292,7 +292,7 @@ def register(request: RegisterRequest):
         raise HTTPException(status_code=409, detail="An account with this email already exists")
     user = db.create_user(email, authmod.hash_password(password))
     if not user:
-        raise HTTPException(status_code=500, detail="Failed to create account")
+        raise HTTPException(status_code=500, detail="Unable to create account. Please try again.")
     token = authmod.create_token(user["id"], user["email"])
     return {"token": token, "user": {"id": user["id"], "email": user["email"]}}
 
@@ -864,11 +864,7 @@ def _is_quota_error(error_msg: str) -> bool:
 
 
 _QUOTA_MESSAGE = (
-    "You've hit Gemini's free-tier daily limit (20 requests/day per model). "
-    "This is a Google quota, not a bug — generation will work again after the "
-    "daily reset (≈24h from your first request today). To continue now, add a "
-    "paid Gemini key, or set GEMINI_MODEL_FALLBACKS to another model you have "
-    "quota on. Your other settings are saved."
+    "We're experiencing high demand right now. Please try again in a few minutes."
 )
 
 
@@ -1001,7 +997,7 @@ async def generate_ebook(request: GenerateRequest):
             raise _quota_error()
         raise HTTPException(status_code=429, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Gemini API error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Unable to process request. Please try again.")
 
 
 @app.post("/api/generate-ebook", response_model=GenerateResponse)
@@ -1436,7 +1432,7 @@ async def list_templates():
     try:
         return {"templates": templatesmod.list_templates()}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Template load failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Unable to load template. Please try again.")
 
 
 @app.post("/api/generate-book")
@@ -1512,7 +1508,7 @@ def generate_book(request: BookRequest, authorization: Optional[str] = Header(No
 
         traceback.print_exc()
         db.log_event("generate-book", "error", detail=str(e))
-        raise HTTPException(status_code=500, detail=f"Book generation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Unable to generate ebook. Please try again.")
 
 
 
@@ -1541,7 +1537,7 @@ def translate_book(request: TranslateRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Translation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Unable to translate ebook. Please try again.")
 
 
 @app.post("/api/preview")
@@ -1562,7 +1558,7 @@ def preview_book(request: PreviewRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Preview failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Unable to load preview. Please try again.")
 
 
 # ---------------------------------------------------------------------------
@@ -1651,7 +1647,7 @@ def edit_section(request: EditSectionRequest):
         # Invalid/malformed AI response — keep the original section unchanged.
         raise HTTPException(
             status_code=422,
-            detail=f"Edit failed, original section kept: {str(e)}",
+            detail=f"AI edit temporarily unavailable. Original section preserved.",
         )
     except HTTPException:
         raise
@@ -1659,7 +1655,7 @@ def edit_section(request: EditSectionRequest):
         import traceback
 
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Section edit failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Unable to edit section. Please try again.")
 
     # Persist the edited book when a database is available.
     if request.ebook_id and db.is_configured():
@@ -1740,7 +1736,7 @@ def download_pdf(request: DownloadRequest):
 
             traceback.print_exc()
             db.log_event("download-pdf", "error", ebook_id=request.ebook_id, detail=str(e))
-            raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Unable to generate PDF. Please try again.")
 
     if not request.content or not request.content.strip():
         raise HTTPException(status_code=400, detail="No content to convert to PDF")

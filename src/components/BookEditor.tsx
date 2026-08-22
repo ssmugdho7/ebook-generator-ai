@@ -106,7 +106,7 @@ export default function BookEditor({
         setCanUndo(true);
         onBookChange(res.book);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Unable to edit section. Please try again.");
+        setError(e instanceof Error ? e.message : "AI edit is temporarily unavailable. Please try again.");
       } finally {
         setIsEditing(false);
         setEditingAction(null);

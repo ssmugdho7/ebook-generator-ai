@@ -36,7 +36,7 @@ class APIKeyManager:
             wait = earliest - now
             if wait > 0:
                 raise RateLimitError(
-                    f"All API keys exhausted. Retry in {int(wait) + 1}s"
+                    "We're experiencing high demand. Please try again shortly."
                 )
             # should not reach here
             return self._keys[0]
