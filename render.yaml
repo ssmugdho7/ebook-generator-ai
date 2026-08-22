@@ -62,7 +62,4 @@ services:
       # service's host means you never have to copy/paste a URL; the frontend
       # adds https:// automatically when the scheme is missing.
       - key: NEXT_PUBLIC_API_URL
-        fromService:
-          name: ebook-api
-          type: web
-          property: host
+        value: ebook-api-lr9i.onrender.com

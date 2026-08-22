@@ -10,9 +10,13 @@ function resolveApiBase(): string {
   const raw = (process.env.NEXT_PUBLIC_API_URL || "").trim();
   if (!raw) return "http://localhost:8000";
   const isLocal = /^(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/i.test(raw);
-  const withScheme = /^https?:\/\//i.test(raw)
-    ? raw
-    : `${isLocal ? "http" : "https"}://${raw}`;
+  let host = raw;
+  if (!isLocal && !/^[a-z0-9-]+\.[a-z]{2,}/i.test(host)) {
+    host += ".onrender.com";
+  }
+  const withScheme = /^https?:\/\//i.test(host)
+    ? host
+    : `${isLocal ? "http" : "https"}://${host}`;
   return withScheme.replace(/\/+$/, "");
 }
 
