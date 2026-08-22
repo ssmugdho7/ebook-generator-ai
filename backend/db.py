@@ -382,6 +382,29 @@ def log_event(
         print(f"DB_LOG_EVENT_FAILED {type(e).__name__}: {e}")
 
 
+DAILY_GENERATION_LIMIT = 5
+
+
+def count_today_generations(user_id: str) -> int:
+    """Count how many ebooks this user generated today (last 24 hours)."""
+    if not is_configured() or not user_id:
+        return 0
+    try:
+        with _connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT COUNT(*) FROM ebooks
+                    WHERE user_id = %s AND created_at >= now() - interval '24 hours'
+                    """,
+                    (user_id,),
+                )
+                return cur.fetchone()[0]
+    except Exception as e:
+        print(f"DB_COUNT_GENERATIONS_FAILED {type(e).__name__}: {e}")
+        return 0
+
+
 # ---------------------------------------------------------------------------
 # Reads
 # ---------------------------------------------------------------------------

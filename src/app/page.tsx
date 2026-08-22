@@ -150,6 +150,10 @@ export default function Home() {
   // errors now get a calm, helpful message instead of a raw Google stack string.
   const friendlyError = (e: unknown, fallback: string): string => {
     const msg = e instanceof Error ? e.message : fallback;
+    // Our daily generation limit
+    if (/daily limit/i.test(msg) || /contact the admin/i.test(msg)) {
+      return msg;
+    }
     if (
       /429/.test(msg) ||
       /quota/i.test(msg) ||
@@ -725,9 +729,22 @@ export default function Home() {
           </div>
         )}
 
-        <footer className="mt-12 border-t border-card-border pt-6 text-center text-xs text-text-muted">
-          <p>Ebook Generator</p>
+        <footer className="mt-12 border-t border-card-border pt-6 pb-8 text-center text-xs text-text-muted">
+          <p className="font-medium text-foreground">Ebook Generator</p>
           <p className="mt-1">Transform notes into publication-ready ebooks</p>
+          <div className="mt-4 flex items-center justify-center gap-4 text-text-muted">
+            <a href="mailto:shahmarufsiraj@gmail.com" className="transition-colors hover:text-accent">
+              shahmarufsiraj@gmail.com
+            </a>
+            <span className="text-card-border">·</span>
+            <a href="https://www.linkedin.com/in/shahmarufsiraj360/" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-accent">
+              LinkedIn
+            </a>
+            <span className="text-card-border">·</span>
+            <a href="https://www.facebook.com/shahmarufsirajdeveloper" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-accent">
+              Facebook
+            </a>
+          </div>
         </footer>
       </div>
 

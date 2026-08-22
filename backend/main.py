@@ -1242,12 +1242,33 @@ def _generate_images_for_book(book: dict) -> dict:
             if block.get("type") == "image" and not block.get("image_data"):
                 all_image_blocks.append(block)
 
+    # If AI didn't generate any image blocks, inject them into suitable sections
+    if not all_image_blocks:
+        sections = book.get("sections", [])
+        # Pick 1-2 sections to add images to (first and middle)
+        inject_indices = []
+        if len(sections) >= 2:
+            inject_indices.append(0)
+            if len(sections) >= 4:
+                inject_indices.append(len(sections) // 2)
+        elif len(sections) == 1:
+            inject_indices.append(0)
+
+        for idx in inject_indices[:max_images]:
+            sec = sections[idx]
+            prompt = _generate_image_prompt_for_section(sec, book.get("title", ""))
+            if prompt:
+                img_block = bookmod.image_block(prompt, "")
+                sec["blocks"].append(img_block)
+                all_image_blocks.append(img_block)
+
     print(
         f"IMAGE_GEN: sections={len(book.get('sections', []))}, "
         f"image_blocks={len(all_image_blocks)}, max_images={max_images}"
     )
 
     if not all_image_blocks:
+        print("IMAGE_GEN: no suitable sections for images")
         return book
 
     selected_blocks = _select_best_image_blocks(all_image_blocks, max_images, book)
@@ -1266,9 +1287,33 @@ def _generate_images_for_book(book: dict) -> dict:
         except Exception as e:
             error_msg = str(e)[:200]
             print(f"IMAGE_FETCH_FAILED: {error_msg}")
-            # Leave block without image_data - it will be skipped cleanly
 
     return book
+
+
+def _generate_image_prompt_for_section(sec: dict, book_title: str) -> str:
+    """Generate a vivid image prompt based on section title and book context."""
+    title = sec.get("title", "")
+    blocks = sec.get("blocks", [])
+    # Extract key concepts from first paragraph
+    first_para = ""
+    for b in blocks:
+        if b.get("type") == "paragraph":
+            first_para = b.get("text", "")[:200]
+            break
+
+    # Build a descriptive prompt from the section context
+    parts = []
+    if title:
+        parts.append(title)
+    if first_para:
+        # Pick the most descriptive sentence
+        sentences = [s.strip() for s in first_para.split(".") if len(s.strip()) > 15]
+        if sentences:
+            parts.append(sentences[0])
+
+    context = ". ".join(parts) if parts else book_title
+    return f"A vivid, cinematic illustration depicting: {context}"
 
 
 def _select_best_image_blocks(blocks: list, max_count: int, book: dict) -> list:
@@ -1412,6 +1457,18 @@ def generate_book(request: BookRequest, authorization: Optional[str] = Header(No
     # Resolve user (optional — library only visible to logged-in users)
     user = _get_current_user(authorization)
     user_id = user["id"] if user else None
+
+    # Daily generation limit: 5 per user per 24 hours
+    if user_id:
+        today_count = db.count_today_generations(user_id)
+        if today_count >= db.DAILY_GENERATION_LIMIT:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    f"You've reached the daily limit of {db.DAILY_GENERATION_LIMIT} ebooks. "
+                    "Try again tomorrow, or contact the admin for more."
+                ),
+            )
 
     try:
         primary_lang = "bn" if language == "bn" else "en"
@@ -1812,6 +1869,8 @@ async def health_check():
         "database": db.health(),
         "page_verification": os.environ.get("PAGE_VERIFY", "true"),
         "allowed_origins": _origins,
+        "image_gen": ENABLE_IMAGE_GEN,
+        "unsplash_key": bool(UNSPLASH_ACCESS_KEY),
     }
 
 
