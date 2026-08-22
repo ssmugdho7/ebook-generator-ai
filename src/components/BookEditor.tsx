@@ -19,15 +19,34 @@ interface BookEditorProps {
   onBookChange: (book: Book) => void;
 }
 
-const QUICK_ACTIONS: { id: EditAction; label: string }[] = [
-  { id: "simplify", label: "Simplify" },
-  { id: "expand", label: "Expand" },
-  { id: "improve", label: "Improve" },
-  { id: "add_examples", label: "Add Example" },
-  { id: "add_code", label: "Add Code" },
-  { id: "add_diagram", label: "Add Diagram" },
-  { id: "regenerate", label: "Regenerate" },
-  { id: "add_quiz", label: "Add Quiz" },
+const CODE_RE = /\b(programming|coding|code|developer|engineer|software|script|api|database|python|javascript|typescript|java|ruby|golang|rust|swift|kotlin|html|css|react|angular|vue|node|django|flask|fastapi|spring|rails|algorithm|function|variable|class|method|loop|array|object|json|yaml|git|docker|kubernetes|aws|azure|gcp|linux|terminal|command.line|cli|debug|compile|runtime|frontend|backend|fullstack|devops|testing|machine.learning|data.science|neural|model|train|predict|deploy|framework|library|package|module|dependency|npm|pip|maven|gradle)\b/i;
+
+function isCodeTopic(book: Book): boolean {
+  const text = `${book.title || ""} ${book.subtitle || ""}`;
+  if (CODE_RE.test(text)) return true;
+  for (const sec of book.sections || []) {
+    for (const b of sec.blocks || []) {
+      if (b.type === "code") return true;
+    }
+  }
+  return false;
+}
+
+interface QuickAction {
+  id: EditAction;
+  label: string;
+  needsCode: boolean;
+}
+
+const QUICK_ACTIONS: QuickAction[] = [
+  { id: "simplify", label: "Simplify", needsCode: false },
+  { id: "expand", label: "Expand", needsCode: false },
+  { id: "improve", label: "Improve", needsCode: false },
+  { id: "add_examples", label: "Add Example", needsCode: true },
+  { id: "add_code", label: "Add Code", needsCode: true },
+  { id: "add_diagram", label: "Add Diagram", needsCode: true },
+  { id: "regenerate", label: "Regenerate", needsCode: true },
+  { id: "add_quiz", label: "Add Quiz", needsCode: true },
 ];
 
 export default function BookEditor({
@@ -102,6 +121,7 @@ export default function BookEditor({
     setError(null);
   }, [onBookChange]);
 
+  const codeTopic = isCodeTopic(book);
   const selectedTitle = sections[selectedIndex]?.title || "";
 
   return (
@@ -164,16 +184,24 @@ export default function BookEditor({
         </p>
 
         <div className="grid grid-cols-2 gap-2">
-          {QUICK_ACTIONS.map((a) => (
-            <button
-              key={a.id}
-              onClick={() => runEdit(a.id)}
-              disabled={isEditing}
-              className="rounded-lg border border-card-border bg-background px-2 py-2 text-xs font-medium text-foreground transition-colors hover:border-accent/40 hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {a.label}
-            </button>
-          ))}
+          {QUICK_ACTIONS.map((a) => {
+            const disabled = isEditing || (a.needsCode && !codeTopic);
+            return (
+              <button
+                key={a.id}
+                onClick={() => runEdit(a.id)}
+                disabled={disabled}
+                className={`rounded-lg border px-2 py-2 text-xs font-medium transition-colors ${
+                  disabled
+                    ? "cursor-not-allowed border-card-border bg-background/50 text-text-muted/40"
+                    : "border-card-border bg-background text-foreground hover:border-accent/40 hover:text-accent"
+                }`}
+                title={a.needsCode && !codeTopic ? "Not available for non-programming books" : undefined}
+              >
+                {a.label}
+              </button>
+            );
+          })}
         </div>
 
         <div className="mt-4">

@@ -119,6 +119,25 @@ Edit your ebook with natural language commands:
 | `add a list` | Insert bullet points |
 | `add summary` | Insert key takeaways callout |
 
+### Book Studio (AI Section Editing)
+
+Select any section and use AI to improve it without regenerating the whole book:
+
+| Action | What it does |
+|--------|-------------|
+| Simplify | Rewrite in plain, everyday words |
+| Expand | Add detail, examples, and depth |
+| Improve | Better flow, vividness, and clarity |
+| Add Example | Append real-world example callouts |
+| Add Code | Append a runnable code block (programming only) |
+| Add Diagram | Append a mermaid diagram (programming only) |
+| Regenerate | Rewrite the section fresh |
+| Add Quiz | Append questions and key-point callout |
+| Custom | Type any instruction (e.g. "explain for a beginner") |
+
+Features: one-level undo, per-section targeting, Bengali support, malformed
+AI response handling (original preserved on failure).
+
 ### Live Preview
 
 - **Real-Time HTML Preview** — See your ebook rendered with full styling before downloading
@@ -199,6 +218,7 @@ ebook-writer/
 | `POST` | `/api/generate-book` | Notes → story outline (saved to Neon, returns `ebook_id`) |
 | `POST` | `/api/preview` | Outline → styled HTML for the live preview |
 | `POST` | `/api/download-pdf` | Outline → PDF (stored against `ebook_id`) |
+| `POST` | `/api/edit-section` | AI-edit a single section (simplify, expand, improve, etc.) |
 | `GET` | `/api/library` | Recent ebooks |
 | `GET` | `/api/library/{id}` | One ebook, with its full outline |
 | `GET` | `/api/library/{id}/pdf` | Stored PDF, streamed from Postgres |
