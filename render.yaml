@@ -38,6 +38,10 @@ services:
         value: /tmp/ebook-writer
       - key: DB_POOL_MAX
         value: "5"
+      - key: ENABLE_IMAGE_GEN
+        value: "true"
+      - key: UNSPLASH_ACCESS_KEY
+        sync: false
 
   # ---------------------------------------------------------------------------
   # Frontend: Next.js 16 (App Router)
