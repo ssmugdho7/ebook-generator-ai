@@ -927,6 +927,21 @@ body {{ padding: 30px 28px; background: {template['palette']['page_bg']}; }}
 .preview-cover {{ margin: 0 0 24px; text-align: center; }}
 .preview-cover img {{ display: block; margin: 0 auto; width: auto; max-width: 100%; max-height: 60vh; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); }}
 {brand_css}
+/* ---- Phone-sized viewports (the iframe viewport == its own width):
+   reflow instead of shrink — larger type, ragged-right text (justified
+   columns look terrible when narrow), and nothing that forces sideways
+   scrolling. Print/PDF output is a separate pipeline and unaffected. ---- */
+@media (max-width: 480px) {{
+  body {{ padding: 20px 16px; font-size: 12.5pt; line-height: 1.6; }}
+  p, li {{ text-align: left; }}
+  h1 {{ font-size: 18pt; }}
+  h2 {{ font-size: 14pt; }}
+  h3 {{ font-size: 12.5pt; }}
+  pre, code, .fallback-diagram, table {{ max-width: 100%; }}
+  pre {{ white-space: pre-wrap; overflow-wrap: anywhere; font-size: 9.5pt; }}
+  table {{ display: block; overflow-x: auto; }}
+  img {{ max-width: 100%; height: auto; }}
+}}
 </style>
 </head>
 <body>

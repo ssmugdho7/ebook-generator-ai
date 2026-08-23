@@ -206,22 +206,16 @@ export default function SharedReader({ token }: { token: string }) {
 
       {/* The rendered book — identical HTML to the owner's live preview */}
       <main className="mx-auto max-w-5xl px-4 py-6">
-        {/* A4 page at natural width on phones — swipe sideways instead of
-            squinting at a shrunken page. */}
-        <div className="h-[calc(100vh-11rem)] overflow-x-auto overflow-y-hidden rounded-2xl border border-card-border bg-card p-2 sm:p-3 lg:overflow-hidden">
+        {/* Full-width page that wraps and scrolls vertically on phones —
+            no sideways panning. */}
+        <div className="h-[calc(100vh-11rem)] overflow-hidden rounded-2xl border border-card-border bg-card p-2 sm:p-3">
           <iframe
             title={data.title}
             srcDoc={html}
-            className="h-full w-[780px] max-w-none rounded-lg bg-white shadow-sm lg:w-full"
+            className="h-full w-full rounded-lg bg-white shadow-sm"
             style={{ overflow: "auto" }}
           />
         </div>
-        <p className="mt-2 flex items-center gap-1.5 text-[11px] text-text-muted sm:hidden">
-          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-          </svg>
-          Swipe the page sideways to read it at full size.
-        </p>
 
         {data.has_pdf && (
           <button

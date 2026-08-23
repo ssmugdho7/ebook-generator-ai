@@ -168,16 +168,15 @@ export default function BookEditor({
             </button>
           )}
         </div>
-        {/* The iframe renders the A4 page at its natural width (780px ≈
-            210mm at 96dpi). On phones that means real, legible text with a
-            sideways swipe instead of a shrunken, unreadable page. The padded
-            frame keeps text away from the card edges. */}
-        <div className="h-[70vh] overflow-x-auto overflow-y-hidden rounded-xl border border-card-border bg-white p-2 sm:p-3 lg:overflow-hidden">
+        {/* Full-width page that wraps: on phones the text reflows to the
+            screen width and scrolls vertically — no sideways panning. The
+            padded frame keeps text away from the card edges. */}
+        <div className="h-[70vh] overflow-hidden rounded-xl border border-card-border bg-white p-2 sm:p-3">
           {previewHtml ? (
             <iframe
               title="Book preview"
               srcDoc={previewHtml}
-              className="h-full w-[780px] max-w-none rounded-md shadow-sm lg:w-full"
+              className="h-full w-full rounded-md shadow-sm"
               style={{ overflow: "auto" }}
             />
           ) : (
@@ -186,12 +185,6 @@ export default function BookEditor({
             </div>
           )}
         </div>
-        <p className="mt-2 flex items-center gap-1.5 text-[11px] text-text-muted sm:hidden">
-          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-          </svg>
-          Swipe the page sideways to read it at full size.
-        </p>
       </div>
 
       {/* RIGHT: AI controls */}
