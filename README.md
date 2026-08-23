@@ -118,6 +118,25 @@ Turn any generated ebook into your company's own document:
 - **Fully optional** — with no `DATABASE_URL` the app still generates ebooks
 
 
+### Shareable Public Links
+
+- **One-click publishing** — Share button on library cards and in the Book
+  Studio toolbar creates a public read-only link (`/r/<token>`)
+- **Beautiful reader page** — visitors see the full rendered book (template
+  styling, diagrams, branding, About page) with zero app chrome or edit controls
+- **Optional password protection** — bcrypt-hashed; readers hit a clean unlock
+  gate before content is served
+- **Link expiry** — 7 days, 30 days, or never; expired links return "unavailable"
+- **Instant revocation** — killing a link stops access immediately, everywhere
+- **View counter** — owners see how many times the link was opened
+- **Cover snapshot** — the current custom cover artwork is attached to the share
+  so the reader mirrors the owner's exact presentation
+- **PDF through the link** — if a stored PDF exists, visitors can download it
+  behind the same password gate
+- **Unguessable tokens** — 192-bit urlsafe tokens; ownership enforced on every
+  manage endpoint
+
+
 ### Professional Cover Design
 
 - **8 Cover Styles** — Bold Editorial, Illustrated, Badge+Grid, Dark Glow, Dark Mono, Dark Gradient, Dark Neon, Minimal Lux
@@ -289,6 +308,9 @@ ebook-writer/
 | `POST` | `/api/library/{id}/branding` | Persist branding into the stored book; `null` payload removes it (owner-only) |
 | `GET` | `/api/library/{id}/pdf` | Stored PDF, streamed from Postgres (owner-guarded) |
 | `DELETE` | `/api/library/{id}` | Remove an ebook and its PDF (owner-guarded) |
+| `GET/POST/DELETE` | `/api/library/{id}/share` | Owner-managed public link: status, publish, revoke |
+| `GET` | `/api/share/{token}` | Public reader feed for `/r/<token>` (password gate via `X-Share-Password`) |
+| `GET` | `/api/share/{token}/pdf` | Public stored-PDF download through the share link (same gate) |
 | `GET` | `/api/key-status` | Gemini key rotation state |
 
 ---

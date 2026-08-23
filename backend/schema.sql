@@ -44,6 +44,21 @@ CREATE TABLE IF NOT EXISTS generation_events (
 CREATE INDEX IF NOT EXISTS generation_events_created_at_idx
     ON generation_events (created_at DESC);
 
+-- Public read-only share links. One active link per ebook; creating a new
+-- link retires the previous one. Passwords are stored bcrypt-hashed.
+CREATE TABLE IF NOT EXISTS ebook_shares (
+    token         text        PRIMARY KEY,
+    ebook_id      uuid        NOT NULL REFERENCES ebooks (id) ON DELETE CASCADE,
+    created_by    uuid        REFERENCES users (id) ON DELETE CASCADE,
+    password_hash text,
+    expires_at    timestamptz,
+    view_count    integer     NOT NULL DEFAULT 0,
+    cover_image   text,
+    created_at    timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS ebook_shares_ebook_idx ON ebook_shares (ebook_id);
+
 -- Optional housekeeping: keep the Neon free tier (0.5 GB) tidy by dropping
 -- PDFs older than 30 days. Run manually or from a Render cron job.
 -- DELETE FROM ebook_pdfs WHERE created_at < now() - interval '30 days';

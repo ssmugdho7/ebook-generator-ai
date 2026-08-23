@@ -2053,6 +2053,166 @@ def library_delete(ebook_id: str, authorization: Optional[str] = Header(None)):
     return {"deleted": ebook_id}
 
 
+# ---------------------------------------------------------------------------
+# Public share links — one active link per ebook, optional password/expiry.
+# The reader page at /r/<token> consumes these endpoints anonymously.
+# ---------------------------------------------------------------------------
+
+_SHARE_COVER_MAX_CHARS = 12_000_000  # ~9 MB binary once base64-decoded
+
+
+class ShareRequest(BaseModel):
+    expires_days: Optional[int] = None  # null -> never expires
+    password: Optional[str] = None      # empty -> no password
+    cover_image: Optional[str] = None   # optional cover artwork for the reader
+
+
+def _own_library_entry(ebook_id: str, authorization: Optional[str]) -> tuple:
+    """Shared guard for owner-only library sub-endpoints. Returns (entry, user)."""
+    user = _require_user(authorization)
+    entry = db.get_ebook(ebook_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Ebook not found")
+    owner_id = entry.get("user_id")
+    if owner_id and owner_id != user["id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return entry, user
+
+
+@app.get("/api/library/{ebook_id}/share")
+def share_status(ebook_id: str, authorization: Optional[str] = Header(None)):
+    """Owner-facing status of an ebook's active share link (null when none)."""
+    _own_library_entry(ebook_id, authorization)
+    if not db.is_configured():
+        raise HTTPException(status_code=503, detail="Library storage is not configured")
+    return {"share": db.get_share_by_ebook(ebook_id)}
+
+
+@app.post("/api/library/{ebook_id}/share")
+def create_share_link(
+    ebook_id: str,
+    payload: ShareRequest,
+    authorization: Optional[str] = Header(None),
+):
+    """Publish a read-only link for an ebook. Creating a new link silently
+    retires any previous one. Returns {token, expires_at, has_password}."""
+    entry, user = _own_library_entry(ebook_id, authorization)
+    if not db.is_configured():
+        raise HTTPException(status_code=503, detail="Library storage is not configured")
+
+    expires_days = payload.expires_days
+    if expires_days is not None and not (1 <= int(expires_days) <= 365):
+        raise HTTPException(status_code=400, detail="Expiry must be between 1 and 365 days")
+
+    password_hash = authmod.hash_password(payload.password) if payload.password else None
+
+    cover_image = payload.cover_image
+    if cover_image is not None:
+        if not bookmod._is_valid_cover_data_url(cover_image):
+            cover_image = None  # cosmetic-only field: drop invalid input silently
+        elif len(cover_image) > _SHARE_COVER_MAX_CHARS:
+            raise HTTPException(status_code=413, detail="Cover image is too large to attach")
+
+    share = db.create_share(
+        ebook_id,
+        user["id"],
+        expires_days=expires_days,
+        password_hash=password_hash,
+        cover_image=cover_image,
+    )
+    if not share:
+        raise HTTPException(status_code=500, detail="Could not create the share link")
+
+    db.log_event("share", "ok", ebook_id=ebook_id,
+                 detail=f"expires={expires_days or 'never'} password={bool(password_hash)}")
+    return {"share": share}
+
+
+@app.delete("/api/library/{ebook_id}/share")
+def revoke_share_link(ebook_id: str, authorization: Optional[str] = Header(None)):
+    """Immediately kill the ebook's public link. Old links stop working."""
+    _own_library_entry(ebook_id, authorization)
+    revoked = db.revoke_share(ebook_id)
+    if revoked:
+        db.log_event("share-revoke", "ok", ebook_id=ebook_id)
+    return {"revoked": bool(revoked)}
+
+
+def _resolve_shared_share(token: str, x_share_password: Optional[str]) -> dict:
+    """Token + password gate shared by both public endpoints. Never leaks the
+    difference between 'bad token' and 'wrong password' until a valid token is
+    presented, so tokens can't be probed by password error messages alone."""
+    share = db.get_share_by_token(token)
+    if not share:
+        raise HTTPException(status_code=404, detail="This link is invalid or has expired.")
+    if share.get("has_password"):
+        supplied = x_share_password or ""
+        row_hash = _get_share_password_hash(token)
+        if not supplied or not row_hash or not authmod.verify_password(supplied, row_hash):
+            raise HTTPException(status_code=401, detail="This ebook is password protected.")
+    return share
+
+
+def _get_share_password_hash(token: str) -> Optional[str]:
+    try:
+        with db._connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT password_hash FROM ebook_shares WHERE token = %s", (token,))
+                row = cur.fetchone()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
+@app.get("/api/share/{token}")
+def read_shared_book(
+    token: str,
+    x_share_password: Optional[str] = Header(None),
+):
+    """Public reader feed: the full structured book for /r/<token> pages."""
+    share = _resolve_shared_share(token, x_share_password)
+    entry = db.get_ebook(share["ebook_id"])
+    if not entry or not isinstance(entry.get("book"), dict):
+        raise HTTPException(status_code=404, detail="This ebook is no longer available.")
+    db.increment_share_views(token)
+    book = entry["book"]
+    return {
+        "title": book.get("title") or entry.get("title") or "Shared ebook",
+        "template_id": entry.get("template_id"),
+        "page_count": entry.get("page_count"),
+        "section_count": len(book.get("sections") or []),
+        "created_at": entry.get("created_at"),
+        "expires_at": share.get("expires_at"),
+        "cover_image": share.get("cover_image"),
+        # Only tell the visitor a PDF exists — fetching still goes through the gate.
+        "has_pdf": db.get_pdf(share["ebook_id"]) is not None,
+        "book": book,
+    }
+
+
+@app.get("/api/share/{token}/pdf")
+def download_shared_pdf(
+    token: str,
+    x_share_password: Optional[str] = Header(None),
+):
+    """Serve the stored PDF through the share link (same password gate)."""
+    share = _resolve_shared_share(token, x_share_password)
+    data = db.get_pdf(share["ebook_id"])
+    if not data:
+        raise HTTPException(
+            status_code=404,
+            detail="No PDF was saved for this ebook yet.",
+        )
+    return Response(
+        content=data,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{_pdf_filename(share.get("title"))}"',
+            "Content-Length": str(len(data)),
+        },
+    )
+
+
 @app.get("/api/health")
 async def health_check():
     """Deployment probe: Render pings this, and it tells you at a glance whether

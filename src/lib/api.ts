@@ -8,6 +8,9 @@
  */
 function resolveApiBase(): string {
   const raw = (process.env.NEXT_PUBLIC_API_URL || "").trim();
+  // A fully-specified URL wins verbatim — earlier versions appended
+  // `.onrender.com` to these and silently broke local/schemed configs.
+  if (/^https?:\/\//i.test(raw)) return raw.replace(/\/+$/, "");
   if (!raw) return "http://localhost:8000";
   const isLocal = /^(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/i.test(raw);
   let host = raw;
@@ -420,4 +423,111 @@ export async function saveEbookBranding(
     const err = await res.json().catch(() => ({ detail: "Save failed" }));
     throw new Error(err.detail || "Failed to save branding");
   }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Share links (public read-only reader at /r/<token>)                        */
+/* -------------------------------------------------------------------------- */
+
+export interface ShareInfo {
+  token: string;
+  has_password: boolean;
+  expires_at: string | null;
+  view_count: number;
+  created_at: string | null;
+}
+
+/** Owner-only: current active share for an ebook (null when unpublished). */
+export async function getShareStatus(ebookId: string): Promise<ShareInfo | null> {
+  const res = await fetch(`${API_BASE}/api/library/${encodeURIComponent(ebookId)}/share`, {
+    headers: _authHeaders(),
+  });
+  if (!res.ok) throw new Error("Could not load the share status");
+  const data = await res.json();
+  return data.share ?? null;
+}
+
+export async function createShareLink(
+  ebookId: string,
+  opts: { expiresDays?: number | null; password?: string; coverImage?: string | null } = {}
+): Promise<ShareInfo> {
+  const res = await fetch(`${API_BASE}/api/library/${encodeURIComponent(ebookId)}/share`, {
+    method: "POST",
+    headers: _authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({
+      expires_days: opts.expiresDays ?? null,
+      password: opts.password || null,
+      cover_image: opts.coverImage ?? null,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Share failed" }));
+    throw new Error(err.detail || "Failed to create the share link");
+  }
+  const data = await res.json();
+  return data.share as ShareInfo;
+}
+
+export async function revokeShareLink(ebookId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/library/${encodeURIComponent(ebookId)}/share`, {
+    method: "DELETE",
+    headers: _authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to revoke the share link");
+}
+
+/** The share URL for a token, resolved against the current origin. */
+export function shareUrl(token: string): string {
+  if (typeof window === "undefined") return `/r/${token}`;
+  return `${window.location.origin}/r/${token}`;
+}
+
+/* ---------------------------- public reader side --------------------------- */
+
+export interface SharedBookPayload {
+  title: string;
+  template_id: string;
+  page_count: number | null;
+  section_count: number;
+  created_at: string | null;
+  expires_at: string | null;
+  cover_image: string | null;
+  has_pdf: boolean;
+  book: Book;
+}
+
+function _sharePasswordHeaders(token: string): Record<string, string> {
+  const h: Record<string, string> = {};
+  if (typeof window !== "undefined") {
+    const pw = sessionStorage.getItem(`share-pw-${token}`);
+    if (pw) h["X-Share-Password"] = pw;
+  }
+  return h;
+}
+
+/** Public: fetch a shared ebook. Throws an Error whose message distinguishes
+ * expired links from password gates so /r/<token> can show the right UI. */
+export async function fetchSharedBook(token: string): Promise<SharedBookPayload> {
+  const res = await fetch(`${API_BASE}/api/share/${encodeURIComponent(token)}`, {
+    headers: _sharePasswordHeaders(token),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Could not open this ebook" }));
+    const e = new Error(err.detail || "Could not open this ebook") as Error & { status?: number };
+    e.status = res.status;
+    throw e;
+  }
+  return res.json();
+}
+
+/** Public: download the stored PDF through the share link. */
+export async function downloadSharedPdf(token: string, title: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/share/${encodeURIComponent(token)}/pdf`, {
+    headers: _sharePasswordHeaders(token),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "PDF not available" }));
+    throw new Error(err.detail || "PDF not available");
+  }
+  await saveBlobAsFile(res, fileNameFromTitle(title));
 }

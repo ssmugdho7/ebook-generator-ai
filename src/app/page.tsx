@@ -8,6 +8,7 @@ import GenerateProgressModal from "@/components/GenerateProgressModal";
 import BookEditor from "@/components/BookEditor";
 import BrandingPanel, { EMPTY_BRANDING } from "@/components/BrandingPanel";
 import AuthModal from "@/components/AuthModal";
+import SharePanel from "@/components/SharePanel";
 import { useAuth } from "@/lib/auth";
 import {
   getTemplates,
@@ -153,6 +154,8 @@ export default function Home() {
   // Selected client-side cover (PNG data URL) embedded as PDF page 1.
   const [selectedCover, setSelectedCover] = useState<string | null>(null);
   const [showBrandingModal, setShowBrandingModal] = useState(false);
+  // Share-link panel: {id, title} of the ebook being shared (library card or studio).
+  const [shareTarget, setShareTarget] = useState<{ id: string; title: string } | null>(null);
 
   const refreshLibrary = useCallback(async () => {
     try {
@@ -774,6 +777,12 @@ export default function Home() {
                       </button>
                     )}
                     <button
+                      onClick={() => setShareTarget({ id: item.id, title: item.title })}
+                      className="rounded-lg border border-card-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-accent/40 hover:text-accent"
+                    >
+                      Share
+                    </button>
+                    <button
                       onClick={() => handleDeleteLibraryItem(item)}
                       disabled={busyItemId === item.id}
                       className="rounded-lg px-2 py-1.5 text-xs font-medium text-text-muted transition-colors hover:text-red-400 disabled:opacity-50"
@@ -888,7 +897,7 @@ export default function Home() {
                     ) : (
                       <>
                         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l3-3m-3 3l-3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
                         Download PDF
                       </>
@@ -900,6 +909,20 @@ export default function Home() {
                     </span>
                   )}
                 </div>
+
+                {/* Publish a read-only link (saved ebooks only) */}
+                {ebookId && (
+                  <button
+                    onClick={() => setShareTarget({ id: ebookId, title: book.title })}
+                    title="Create a public read-only link"
+                    className="flex items-center gap-2 rounded-xl border border-card-border bg-background px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:border-accent/40 hover:text-accent"
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                    </svg>
+                    Share
+                  </button>
+                )}
               </div>
             </div>
 
@@ -970,6 +993,14 @@ export default function Home() {
         onClose={() => setAuthModalOpen(false)}
         message={authModalMessage || undefined}
       />
+      {shareTarget && (
+        <SharePanel
+          ebookId={shareTarget.id}
+          title={shareTarget.title}
+          coverImage={selectedCover}
+          onClose={() => setShareTarget(null)}
+        />
+      )}
     </div>
   );
 }

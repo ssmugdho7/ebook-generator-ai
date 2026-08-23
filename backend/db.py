@@ -72,6 +72,19 @@ CREATE TABLE IF NOT EXISTS generation_events (
 
 CREATE INDEX IF NOT EXISTS generation_events_created_at_idx
     ON generation_events (created_at DESC);
+
+CREATE TABLE IF NOT EXISTS ebook_shares (
+    token         text        PRIMARY KEY,
+    ebook_id      uuid        NOT NULL REFERENCES ebooks (id) ON DELETE CASCADE,
+    created_by    uuid        REFERENCES users (id) ON DELETE CASCADE,
+    password_hash text,
+    expires_at    timestamptz,
+    view_count    integer     NOT NULL DEFAULT 0,
+    cover_image   text,
+    created_at    timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS ebook_shares_ebook_idx ON ebook_shares (ebook_id);
 """
 
 
@@ -577,3 +590,162 @@ def delete_ebook(ebook_id: str) -> bool:
     except Exception as e:
         print(f"DB_DELETE_FAILED {type(e).__name__}: {e}")
         return False
+
+
+# ---------------------------------------------------------------------------
+# Share links (public read-only access to a single ebook)
+# ---------------------------------------------------------------------------
+
+# One active link per ebook keeps the mental model simple: "Publish" creates a
+# fresh link and silently retires any previous one.
+SHARE_TOKEN_BYTES = 24
+
+_SHARE_COLS = """token, password_hash IS NOT NULL AS has_password,
+                 expires_at, view_count, created_at"""
+
+
+def create_share(
+    ebook_id: str,
+    user_id: str,
+    expires_days: Optional[int] = None,
+    password_hash: Optional[str] = None,
+    cover_image: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Create (or replace) the share link for an ebook. Returns share info."""
+    import secrets
+
+    if not is_configured():
+        return None
+    token = secrets.token_urlsafe(SHARE_TOKEN_BYTES)
+    try:
+        with _connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM ebook_shares WHERE ebook_id = %s", (ebook_id,))
+                cur.execute(
+                    """
+                    INSERT INTO ebook_shares (token, ebook_id, created_by, password_hash,
+                                              expires_at, cover_image)
+                    VALUES (%s, %s, %s, %s,
+                            CASE WHEN %s::int IS NULL THEN NULL
+                                 ELSE now() + (%s::int * interval '1 day') END,
+                            %s)
+                    RETURNING {_cols}
+                    """.format(_cols=_SHARE_COLS),
+                    (
+                        token,
+                        ebook_id,
+                        user_id,
+                        password_hash,
+                        expires_days,
+                        expires_days,
+                        cover_image,
+                    ),
+                )
+                row = cur.fetchone()
+            conn.commit()
+        return _share_row(row)
+    except Exception as e:
+        print(f"DB_CREATE_SHARE_FAILED {type(e).__name__}: {e}")
+        return None
+
+
+def get_share_by_token(token: str) -> Optional[Dict[str, Any]]:
+    """Resolve a valid (non-expired) share token. Expired/unknown -> None.
+
+    Returns metadata only — callers join the book JSON separately so a bad
+    password never leaks content.
+    """
+    if not is_configured():
+        return None
+    try:
+        with _connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT s.token, s.password_hash IS NOT NULL AS has_password,
+                           s.expires_at, s.view_count, s.created_at,
+                           s.ebook_id, s.cover_image, e.title
+                    FROM ebook_shares s
+                    JOIN ebooks e ON e.id = s.ebook_id
+                    WHERE s.token = %s
+                      AND (s.expires_at IS NULL OR s.expires_at > now())
+                    """,
+                    (token,),
+                )
+                row = cur.fetchone()
+        if not row:
+            return None
+        return _share_row(
+            row[:5],
+            extra={"ebook_id": str(row[5]), "cover_image": row[6], "title": row[7]},
+        )
+    except Exception as e:
+        print(f"DB_GET_SHARE_FAILED {type(e).__name__}: {e}")
+        return None
+
+
+def get_share_by_ebook(ebook_id: str) -> Optional[Dict[str, Any]]:
+    """Owner-facing status of an ebook's share link (or None)."""
+    if not is_configured():
+        return None
+    try:
+        with _connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT {_SHARE_COLS} FROM ebook_shares
+                    WHERE ebook_id = %s
+                      AND (expires_at IS NULL OR expires_at > now())
+                    """,
+                    (ebook_id,),
+                )
+                row = cur.fetchone()
+        return _share_row(row) if row else None
+    except Exception as e:
+        print(f"DB_GET_SHARE_BY_EBOOK_FAILED {type(e).__name__}: {e}")
+        return None
+
+
+def revoke_share(ebook_id: str) -> bool:
+    """Remove any active share link for an ebook. True if one was removed."""
+    if not is_configured():
+        return False
+    try:
+        with _connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM ebook_shares WHERE ebook_id = %s", (ebook_id,))
+                deleted = cur.rowcount
+            conn.commit()
+        return bool(deleted)
+    except Exception as e:
+        print(f"DB_REVOKE_SHARE_FAILED {type(e).__name__}: {e}")
+        return False
+
+
+def increment_share_views(token: str) -> None:
+    """Best-effort view counter for the owner's dashboard; never raises."""
+    if not is_configured():
+        return
+    try:
+        with _connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE ebook_shares SET view_count = view_count + 1 WHERE token = %s",
+                    (token,),
+                )
+            conn.commit()
+    except Exception as e:
+        print(f"DB_SHARE_VIEW_FAILED {type(e).__name__}: {e}")
+
+
+def _share_row(row, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    info = {
+        "token": row[0],
+        "has_password": bool(row[1]),
+        "expires_at": row[2].isoformat() if row[2] else None,
+        "view_count": int(row[3]),
+        "created_at": row[4].isoformat() if row[4] else None,
+    }
+    if extra:
+        info.update(extra)
+    return info
