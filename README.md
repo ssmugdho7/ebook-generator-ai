@@ -5,11 +5,46 @@ print-ready PDF. Powered by Google Gemini, with live preview, WCAG-accessible
 covers, full Bengali translation, white-label business branding, and a
 Neon-backed library of everything you've made.
 
-![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi)
-![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)
-![Postgres](https://img.shields.io/badge/Neon-Postgres-00E599?logo=postgresql)
-![License](https://img.shields.io/badge/License-MIT-green)
+[![Live Demo](https://img.shields.io/badge/demo-live-success?logo=vercel)](https://ebook-generator-ai.vercel.app)
+[![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi)](https://fastapi.tiangolo.com/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)](https://www.typescriptlang.org/)
+[![Postgres](https://img.shields.io/badge/Neon-Postgres-00E599?logo=postgresql)](https://neon.tech/)
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+
+---
+
+## What it does
+
+Most AI ebooks read like a manual. This one reads like a bedtime story that
+happens to teach — the way a mother explains something to her child, or a
+teacher closes the textbook and says *"let me tell you what really happened."*
+
+The homepage walks you through three simple steps: write your topic, pick a
+design, and download a print-ready PDF. Behind that simple flow sits a
+full-featured studio for editing, branding, and sharing.
+
+---
+
+## Quick start
+
+```bash
+# clone and install
+git clone https://github.com/ssmugdho7/ebook-generator-ai.git
+cd ebook-generator-ai
+npm install
+
+# backend (in one terminal)
+cd backend && pip install -r requirements.txt && playwright install chromium
+uvicorn main:app --reload --port 8000
+
+# frontend (in another terminal)
+npm run dev
+```
+
+Open `http://localhost:3000`.
+
+For production deployment on Render with Neon Postgres, see **[DEPLOYMENT.md](./DEPLOYMENT.md)**.
 
 ---
 
@@ -244,45 +279,77 @@ state. Branding data is stripped before AI calls and re-attached after.
 
 ---
 
+## Homepage & UX
+
+The landing page is built with a modern, production-grade design system:
+
+- **Sticky navigation** with glassmorphism and responsive auth controls
+- **Hero section** with gradient typography, animated badge, and dual CTAs
+- **Stats bar** showing key numbers (templates, cover styles, etc.)
+- **How it works** — three-step visual walkthrough
+- **Bento-grid features** highlighting AI storytelling, live preview, branding, Bengali translation, and shareable links
+- **Template gallery** with live preview cards for all four design themes
+- **Generator section** with stepper, topic input, template picker, length/language selectors
+- **Library sidebar** showing saved ebooks with open, PDF, share, and delete actions
+- **Dark / light mode** with persistent user preference
+- Fully responsive across mobile, tablet, and desktop
+
 ## Project Structure
 
 ```
 ebook-writer/
-├── render.yaml           # Render Blueprint: both services in one file
-├── .env.example          # Frontend env template
+├── render.yaml               # Render Blueprint: both services in one file
+├── .env.example              # Frontend env template
 ├── src/
-│   ├── app/              # Next.js pages (generator + library UI)
-│   ├── components/       # React UI components
-│   │   ├── CoverGenerator.tsx    # Cover design modal
-│   │   ├── BrandingPanel.tsx     # White-label branding modal + live preview
-│   │   ├── BookEditor.tsx        # Book Studio: AI section editing
-│   │   ├── AuthModal.tsx         # Sign in / create account
-│   │   ├── ThemePreview.tsx      # Template theme preview cards
-│   │   └── MarkdownPreview.tsx   # Markdown renderer
+│   ├── app/
+│   │   ├── page.tsx          # Landing page + generator + library + Book Studio
+│   │   ├── lets-scroll/      # Cinematic scroll experience (optional)
+│   │   ├── globals.css       # Tailwind v4 + theme variables (light/dark)
+│   │   └── layout.tsx        # Root layout, theme bootstrap, AuthProvider
+│   ├── components/
+│   │   ├── Navbar.tsx        # Sticky nav with auth-aware links
+│   │   ├── HeroSection.tsx   # Hero with gradient text, badges, CTAs
+│   │   ├── FeaturesBento.tsx # Bento-grid feature cards
+│   │   ├── HowItWorks.tsx    # 3-step walkthrough
+│   │   ├── TemplatesSection.tsx # Template gallery previews
+│   │   ├── StatsBar.tsx      # Social-proof metrics
+│   │   ├── CtaSection.tsx    # Final conversion section
+│   │   ├── Footer.tsx        # Site footer
+│   │   ├── CoverGenerator.tsx # Cover design modal
+│   │   ├── BrandingPanel.tsx # White-label branding modal + live preview
+│   │   ├── BookEditor.tsx    # Book Studio: AI section editing
+│   │   ├── AuthModal.tsx     # Sign in / create account
+│   │   ├── ThemePreview.tsx  # Template theme preview cards
+│   │   ├── MarkdownPreview.tsx # Markdown renderer
+│   │   ├── SharePanel.tsx    # Public share-link manager
+│   │   ├── LoadingSpinner.tsx # Spinner with size variants
+│   │   ├── GenerateProgressModal.tsx # Generation progress overlay
+│   │   └── DownloadProgressModal.tsx # PDF compile progress overlay
 │   └── lib/
-│       ├── api.ts        # Backend API client (+ library, auth, branding calls)
-│       ├── covers.ts     # Cover generation engine
-│       └── generated-icons.ts  # Auto-generated icon data
+│       ├── api.ts            # Backend API client (+ library, auth, branding calls)
+│       ├── auth.tsx          # JWT auth context + login/register/logout
+│       ├── covers.ts         # Cover generation engine
+│       └── generated-icons.ts # Auto-generated icon data
 ├── backend/
-│   ├── Dockerfile        # Python + Chromium image used by Render
-│   ├── .dockerignore     # Keeps the image lean
-│   ├── .env.example      # Backend env template
-│   ├── main.py           # FastAPI app, storyteller prompts, endpoints
-│   ├── auth.py           # JWT issuance/verification, password hashing
-│   ├── branding.py       # Branding sanitization/validation, footer builder
-│   ├── db.py             # Neon persistence (library, PDFs, events, quotas)
-│   ├── schema.sql        # Same schema, for manual provisioning
-│   ├── book.py           # Book model + HTML rendering + page estimation
-│   ├── pipeline.py       # PDF compilation pipeline (container-safe)
-│   ├── editor.py         # Comment-based editor
-│   ├── templates.py      # Template system
-│   ├── key_manager.py    # API key rotation
-│   ├── templates/        # JSON template definitions
-│   ├── test_pdf_quality.py  # Quality test suite
-│   └── test_image_gen.py    # AI cover image tests
+│   ├── Dockerfile            # Python + Chromium image used by Render
+│   ├── .dockerignore         # Keeps the image lean
+│   ├── .env.example          # Backend env template
+│   ├── main.py               # FastAPI app, storyteller prompts, endpoints
+│   ├── auth.py               # JWT issuance/verification, password hashing
+│   ├── branding.py           # Branding sanitization/validation, footer builder
+│   ├── db.py                 # Neon persistence (library, PDFs, events, quotas)
+│   ├── schema.sql            # Same schema, for manual provisioning
+│   ├── book.py               # Book model + HTML rendering + page estimation
+│   ├── pipeline.py           # PDF compilation pipeline (container-safe)
+│   ├── editor.py             # Comment-based editor
+│   ├── templates.py          # Template system
+│   ├── key_manager.py        # API key rotation
+│   ├── templates/            # JSON template definitions (4 themes)
+│   ├── test_pdf_quality.py   # Quality test suite
+│   └── test_image_gen.py     # AI cover image tests
 ├── scripts/
-│   ├── gen-icons.mjs     # Icon generation script
-│   └── verify-covers.mjs  # Cover verification suite
+│   ├── gen-icons.mjs         # Icon generation script
+│   └── verify-covers.mjs     # Cover verification suite
 └── package.json
 ```
 
