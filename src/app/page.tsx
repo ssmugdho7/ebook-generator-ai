@@ -45,6 +45,113 @@ Include a diagram of the component lifecycle and progressive code examples.
 Tell it like a story a teacher would tell in class — one simple everyday world,
 a couple of characters, and a cliffhanger at the end of every section.`;
 
+type ModeStatus = "active" | "locked" | "idle";
+
+// When both presentation modes somehow end up active (e.g. restored storage),
+// branding wins and the plain cover is dropped — the branded edition renders
+// its own cover.
+function dropCoverIfBranded(b: Book | null, cover: string | null): string | null {
+  return b?.branding?.enabled ? null : cover;
+}
+
+/**
+ * Premium mode card used for the Cover and Branding actions.
+ * The two modes are mutually exclusive: activating one locks the other until
+ * it is turned off, so a PDF always carries exactly one presentation layer.
+ */
+function ModeButton({
+  icon,
+  label,
+  subtitle,
+  status,
+  lockedReason,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  subtitle: string;
+  status: ModeStatus;
+  lockedReason?: string;
+  onClick: () => void;
+}) {
+  const active = status === "active";
+  const locked = status === "locked";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={locked}
+      aria-disabled={locked}
+      title={locked ? lockedReason : undefined}
+      className={`group relative flex items-center gap-3 overflow-hidden rounded-2xl border px-4 py-2.5 text-left transition-all duration-200 ${
+        active
+          ? "border-emerald-400/50 bg-gradient-to-r from-emerald-500/10 via-teal-500/[0.07] to-transparent shadow-[0_10px_28px_-14px_rgba(16,185,129,0.6)]"
+          : locked
+            ? "cursor-not-allowed border-dashed border-card-border bg-black/[0.03] opacity-55 dark:bg-white/[0.03]"
+            : "border-card-border bg-background hover:-translate-y-0.5 hover:border-accent/60 hover:bg-accent/[0.04] hover:shadow-[0_12px_32px_-16px_rgba(99,102,241,0.5)]"
+      }`}
+    >
+      {/* Icon chip */}
+      <span
+        className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl transition-colors ${
+          active
+            ? "bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-inner"
+            : locked
+              ? "bg-card-border/40 text-text-muted"
+              : "bg-accent/10 text-accent group-hover:from-accent group-hover:to-violet-500 group-hover:text-white"
+        }`}
+      >
+        {locked ? (
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+        ) : (
+          icon
+        )}
+      </span>
+
+      {/* Label + status */}
+      <span className="min-w-0">
+        <span className="flex items-center gap-2">
+          <span
+            className={`text-sm font-semibold tracking-tight ${
+              active ? "text-emerald-500 dark:text-emerald-400" : locked ? "text-text-muted" : "text-foreground"
+            }`}
+          >
+            {label}
+          </span>
+          {active && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-px text-[10px] font-bold uppercase tracking-wider text-emerald-500 dark:text-emerald-400">
+              <span className="h-1 w-1 animate-pulse rounded-full bg-current" />
+              Active
+            </span>
+          )}
+          {locked && (
+            <span className="rounded-full border border-card-border px-1.5 py-px text-[10px] font-bold uppercase tracking-wider text-text-muted">
+              Locked
+            </span>
+          )}
+        </span>
+        <span className="mt-0.5 block truncate text-[11px] leading-tight text-text-muted">
+          {subtitle}
+        </span>
+      </span>
+
+      {/* Hover affordance */}
+      {!locked && !active && (
+        <svg
+          className="ml-1 hidden h-4 w-4 shrink-0 text-text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-accent sm:block"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
 export default function Home() {
   const { user, loading: authLoading, logout } = useAuth();
   const [authModalOpen, setAuthModalOpen] = useState(false);
@@ -122,7 +229,8 @@ export default function Home() {
         setEbookId(s.ebook_id ?? null);
         setTemplateId(s.template_id || "minimal-light");
         setLanguage(s.language === "bn" ? "bn" : "en");
-        setSelectedCover(s.cover_image ?? null);
+        // Mutual exclusion on restore: branding beats a plain custom cover.
+        setSelectedCover(dropCoverIfBranded(s.book, s.cover_image ?? null));
       }
     } catch {
       /* ignore corrupt storage */
@@ -149,6 +257,13 @@ export default function Home() {
   }, [book, ebookId, templateId, language, selectedCover]);
 
   const selectedTemplate = templates.find((t) => t.id === templateId);
+
+  // ---- Cover vs branding mutual exclusion + download gate ----
+  // Exactly one presentation layer may be active: a custom cover OR business
+  // branding. Activating one locks the other; a PDF needs at least one.
+  const brandingActive = !!book?.branding?.enabled;
+  const coverActive = !!selectedCover;
+  const canDownload = brandingActive || coverActive;
 
   // Turn raw backend errors into something a reader can act on.
   const friendlyError = (e: unknown, fallback: string): string => {
@@ -209,6 +324,7 @@ export default function Home() {
   const handleSaveBranding = useCallback(
     (branding: EbookBranding) => {
       setBook((prev) => (prev ? { ...prev, branding } : prev));
+      if (branding.enabled) setSelectedCover(null); // modes are mutually exclusive
       if (ebookId) {
         const empty =
           !branding.enabled || (!branding.company_name.trim() && !branding.logo_data);
@@ -222,6 +338,12 @@ export default function Home() {
 
   const handleDownload = useCallback(async () => {
     if (!book) return;
+    if (!canDownload) {
+      setError(
+        "Pick a custom cover or turn on business branding before downloading — one of them is required."
+      );
+      return;
+    }
     setIsDownloading(true);
     setError(null);
     setDownloadProgress(0);
@@ -252,7 +374,7 @@ export default function Home() {
         setDownloadStatus("");
       }, 800);
     }
-  }, [book, language, ebookId, selectedCover, refreshLibrary]);
+  }, [book, language, ebookId, selectedCover, refreshLibrary, canDownload]);
 
   const handleOpenLibraryItem = useCallback(
     async (item: LibraryItem) => {
@@ -264,6 +386,9 @@ export default function Home() {
         setEbookId(entry.id);
         setPageCount(entry.page_count ?? null);
         setTemplateId(entry.book.template_id);
+        // The previous book's custom cover doesn't carry over, and a branded
+        // book renders its own cover — either way start clean.
+        setSelectedCover(null);
       } catch (e) {
         setError(friendlyError(e, "Unable to open ebook. Please try again."));
       } finally {
@@ -680,7 +805,7 @@ export default function Home() {
                   )}
                 </p>
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-center gap-2.5">
                 <button
                   onClick={() => {
                     setBook(null);
@@ -694,50 +819,109 @@ export default function Home() {
                 >
                   Start Over
                 </button>
-                <button
-                  onClick={() => setShowCoverModal(true)}
-                  className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors ${
-                    selectedCover
-                      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
-                      : "border-card-border bg-background text-foreground hover:bg-accent/10 hover:text-accent"
-                  }`}
-                >
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M4 4h16v12H4z" />
-                  </svg>
-                  {selectedCover ? "Change Cover" : "Choose Cover"}
-                </button>
-                <button
-                  onClick={() => setShowBrandingModal(true)}
-                  className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors ${
-                    book.branding?.enabled
-                      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
-                      : "border-card-border bg-background text-foreground hover:bg-accent/10 hover:text-accent"
-                  }`}
-                >
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                  </svg>
-                  {book.branding?.enabled ? "Branding On" : "Brand Your Ebook"}
-                </button>
-                <button
-                  onClick={handleDownload}
-                  disabled={isDownloading}
-                  className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 transition-all hover:from-blue-500 hover:to-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {isDownloading ? (
-                    <>
-                      <LoadingSpinner size="sm" /> Compiling PDF…
-                    </>
-                  ) : (
-                    <>
+
+                {/* Presentation modes: custom cover vs business branding —
+                    mutually exclusive, one must be active to download. */}
+                <div className="flex items-center gap-1">
+                  <ModeButton
+                    icon={
                       <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                       </svg>
-                      Download PDF
-                    </>
+                    }
+                    label={coverActive ? "Change Cover" : "Custom Cover"}
+                    subtitle={
+                      brandingActive
+                        ? "Turn off branding to unlock"
+                        : coverActive
+                          ? "Active · tap to swap the artwork"
+                          : "Design your own PDF cover"
+                    }
+                    status={brandingActive ? "locked" : coverActive ? "active" : "idle"}
+                    lockedReason="Custom covers are locked while business branding is on."
+                    onClick={() => setShowCoverModal(true)}
+                  />
+                  {coverActive && !brandingActive && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCover(null)}
+                      aria-label="Remove custom cover"
+                      title="Remove your custom cover"
+                      className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-card-border text-text-muted transition-colors hover:border-red-400/60 hover:text-red-500"
+                    >
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
                   )}
-                </button>
+                </div>
+                <ModeButton
+                  icon={
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  }
+                  label={coverActive ? "Change Cover" : "Custom Cover"}
+                  subtitle={
+                    brandingActive
+                      ? "Turn off branding to unlock"
+                      : coverActive
+                        ? "Active · tap to swap the artwork"
+                        : "Design your own PDF cover"
+                  }
+                  status={brandingActive ? "locked" : coverActive ? "active" : "idle"}
+                  lockedReason="Custom covers are locked while business branding is on."
+                  onClick={() => setShowCoverModal(true)}
+                />
+                <ModeButton
+                  icon={
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                    </svg>
+                  }
+                  label="Business Branding"
+                  subtitle={
+                    coverActive
+                      ? "Remove your custom cover to unlock"
+                      : brandingActive
+                        ? "Active · white-label edition"
+                        : "White-label it with your logo & colors"
+                  }
+                  status={coverActive ? "locked" : brandingActive ? "active" : "idle"}
+                  lockedReason="Branding is locked while a custom cover is set — remove it first."
+                  onClick={() => setShowBrandingModal(true)}
+                />
+
+                <div className="relative flex flex-col items-end">
+                  <button
+                    onClick={handleDownload}
+                    disabled={isDownloading || !canDownload}
+                    title={
+                      canDownload
+                        ? undefined
+                        : "Pick a cover or add branding to unlock your download"
+                    }
+                    className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 transition-all hover:from-blue-500 hover:to-violet-500 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:from-blue-600 disabled:hover:to-violet-600 disabled:shadow-none"
+                  >
+                    {isDownloading ? (
+                      <>
+                        <LoadingSpinner size="sm" /> Compiling PDF…
+                      </>
+                    ) : (
+                      <>
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        Download PDF
+                      </>
+                    )}
+                  </button>
+                  {!canDownload && !isDownloading && (
+                    <span className="mt-1 max-w-[220px] text-right text-[10px] font-medium leading-tight text-text-muted">
+                      Add a cover or branding to unlock
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 

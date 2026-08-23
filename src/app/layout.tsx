@@ -20,11 +20,12 @@ export const metadata: Metadata = {
     "Transform your notes, concepts, and code snippets into beautifully structured, publication-ready ebooks using AI.",
 };
 
-// Applied before first paint so a saved light preference never flashes dark.
+// Applied before first paint so a saved dark preference never flashes light.
+// Light is the default: only an explicit saved "dark" choice enables it.
 const THEME_BOOTSTRAP = `
 try {
   var saved = localStorage.getItem('theme');
-  var dark = saved ? saved === 'dark' : true;
+  var dark = saved === 'dark';
   document.documentElement.classList.toggle('dark', dark);
   document.documentElement.classList.toggle('light', !dark);
 } catch (e) {}
@@ -38,7 +39,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased dark`}
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased light`}
       suppressHydrationWarning
     >
       <head>
