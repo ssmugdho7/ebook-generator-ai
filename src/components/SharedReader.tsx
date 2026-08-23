@@ -8,6 +8,8 @@ import {
   downloadSharedPdf,
   fetchSharedBook,
   getBookPreview,
+  isInAppBrowser,
+  sharedPdfNavUrl,
   type EbookBranding,
   type SharedBookPayload,
 } from "@/lib/api";
@@ -73,6 +75,18 @@ export default function SharedReader({ token }: { token: string }) {
 
   const handleDownload = useCallback(async () => {
     if (state.phase !== "ready" || downloading) return;
+    // In-app browsers (Messenger, Instagram, ...) block blob: downloads and
+    // ignore <a download>. Navigating straight to the PDF works everywhere:
+    // the server's Content-Disposition: attachment hands the file to the
+    // platform's download/viewer flow without leaving this page in regular
+    // browsers either.
+    if (isInAppBrowser()) {
+      setDownloading(true);
+      window.location.assign(sharedPdfNavUrl(token));
+      // If navigation was blocked (rare), restore the button.
+      setTimeout(() => setDownloading(false), 4000);
+      return;
+    }
     setDownloading(true);
     try {
       await downloadSharedPdf(token, state.data.title);

@@ -520,6 +520,33 @@ function _sharePasswordHeaders(token: string): Record<string, string> {
   return h;
 }
 
+/**
+ * True when the page runs inside an embedded/social browser (Messenger,
+ * Facebook, Instagram, LinkedIn, WhatsApp, Line, generic WebViews...).
+ * Those browsers routinely block blob: URLs and ignore <a download>, so
+ * fetch-then-save silently does nothing — plain navigation is the only
+ * reliable download path there.
+ */
+export function isInAppBrowser(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  return /FB_IAB|FBAN|FBAV|FBBR|FB4A|Messenger|Instagram|LinkedIn|Line\/|OKApp|Snapchat|Twitter|wv\)|WebView/i.test(ua);
+}
+
+/**
+ * URL for navigating straight to the shared PDF. Carries the share password
+ * as a query param (the recipient already knows it) because in-app browsers
+ * cannot send custom headers on a navigation.
+ */
+export function sharedPdfNavUrl(token: string): string {
+  let url = `${API_BASE}/api/share/${encodeURIComponent(token)}/pdf`;
+  if (typeof window !== "undefined") {
+    const pw = sessionStorage.getItem(`share-pw-${token}`);
+    if (pw) url += `?pw=${encodeURIComponent(pw)}`;
+  }
+  return url;
+}
+
 /** Public: fetch a shared ebook. Throws an Error whose message distinguishes
  * expired links from password gates so /r/<token> can show the right UI. */
 export async function fetchSharedBook(token: string): Promise<SharedBookPayload> {

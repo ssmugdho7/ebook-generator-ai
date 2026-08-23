@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Header, Request
+from fastapi import FastAPI, HTTPException, Header, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from typing import Optional
@@ -2229,9 +2229,15 @@ def read_shared_book(
 def download_shared_pdf(
     token: str,
     x_share_password: Optional[str] = Header(None),
+    pw: Optional[str] = Query(None),
 ):
-    """Serve the stored PDF through the share link (same password gate)."""
-    share = _resolve_shared_share(token, x_share_password)
+    """Serve the stored PDF through the share link (same password gate).
+
+    `pw` mirrors the X-Share-Password header so in-app browsers (Messenger,
+    Instagram, ...) can download via plain top-level navigation, where custom
+    headers are impossible.
+    """
+    share = _resolve_shared_share(token, x_share_password or pw)
     data = db.get_pdf(share["ebook_id"])
     if not data:
         raise HTTPException(
