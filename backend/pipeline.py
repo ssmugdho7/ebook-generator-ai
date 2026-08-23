@@ -782,7 +782,10 @@ def bengali_font_face() -> str:
         "  font-family: 'Noto Sans Bengali';\n"
         "  font-style: normal;\n"
         "  font-weight: 400;\n"
-        "  font-display: swap;\n"
+        # `block` (not `swap`): during print layout the text must never be
+        # measured with fallback metrics, or page numbers shift between the
+        # two passes and glyphs can ship before activation.
+        "  font-display: block;\n"
         f"  src: url(data:font/ttf;base64,{data}) format('truetype');\n"
         "}\n"
     )
@@ -952,6 +955,26 @@ h1.chapter-title { font-size: 26pt; text-align: center; margin-top: 70mm; }
         for k in ("line", "box", "cluster")
     )
 
+    # Bengali support must widen the font stacks while the FONT / HEADING_FONT
+    # / MONO placeholders still exist — the substitution chain below consumes
+    # them, and patching afterwards silently no-ops (exactly how Bengali PDFs
+    # ended up rendering with fallback glyphs on servers with no Bangla font).
+    # The appended family is tried per-glyph, so Latin text is untouched.
+    bengali_font = bengali_font_face() if bengali else ""
+    if bengali:
+        body = body.replace(
+            "font-family: FONT;",
+            "font-family: FONT, 'Noto Sans Bengali', sans-serif;",
+        )
+        body = body.replace(
+            "font-family: HEADING_FONT;",
+            "font-family: HEADING_FONT, 'Noto Sans Bengali', serif;",
+        )
+        body = body.replace(
+            "font-family: MONO;",
+            "font-family: MONO, 'Noto Sans Bengali', monospace;",
+        )
+
     css = body.replace("PAGE_BG", v.get("page_bg", "#fff"))
     css = css.replace("ACCENT_TEXT", accent_text).replace("CODE_TEXT", v.get("code_text", "#111"))
     css = css.replace("ACCENT_SOFT", accent_soft).replace("ACCENT", accent or "#000")
@@ -968,19 +991,14 @@ h1.chapter-title { font-size: 26pt; text-align: center; margin-top: 70mm; }
     cover_css = cover.replace("TITLE_BG", v.get("title_page_bg", v.get("page_bg", "#fff")))
     header_css = header.replace("MUTED", muted).replace("ACCENT", accent or "#000")
 
-    bengali_font = bengali_font_face() if bengali else ""
     if bengali:
-        # Append a Bengali-capable family so Bangla glyphs render in PDFs.
-        css = css.replace(
-            "font-family: FONT;",
-            "font-family: FONT, 'Noto Sans Bengali', sans-serif;",
-            1,
-        )
-        # Also widen headings/mono fallbacks for any stray Bengali.
-        css = css.replace(
-            "font-family: HEADING_FONT;",
-            "font-family: HEADING_FONT, 'Noto Sans Bengali', serif;",
-            1,
+        # Indic typography needs more vertical room than Latin: stacked
+        # conjuncts, above/below matras. The Latin-tuned 1.55 clips them.
+        css += "\nbody { line-height: 1.8; }\n"
+        css += (
+            "h1, h2, h3, h4 { line-height: 1.5; }\n"
+            ".callout-info, .callout-tip, .callout-warn, .callout-example,"
+            " .callout-takeaway { line-height: 1.75; }\n"
         )
     return (
         header_css
@@ -1356,6 +1374,33 @@ async def render_pdf(
         except Exception:
             pass
 
+        # Webfonts must be ACTIVE before we print. The embedded Bengali face
+        # (~190KB data URI) otherwise races page.pdf(): Chromium snapshots with
+        # fallback glyphs — invisible on machines with system Bangla fonts,
+        # broken/tofu inside slim containers that have none. This is why a
+        # Bengali ebook could preview fine but download broken. fonts.load()
+        # forces activation (document.fonts.status alone can read 'loaded'
+        # while a registered face was never fetched).
+        try:
+            await page.evaluate(
+                """async () => {
+                  try {
+                    await document.fonts.load(
+                      "16px 'Noto Sans Bengali'",
+                      "আমার সোনার বাংলা ভাষা"
+                    );
+                  } catch (e) {}
+                  await document.fonts.ready;
+                }"""
+            )
+            await page.wait_for_function(
+                """() => Array.from(document.fonts)
+                     .every(f => f.status !== 'unloaded')""",
+                timeout=10000,
+            )
+        except Exception:
+            pass  # degrade gracefully; never hard-fail a PDF over font quirks
+
         # Layout safety net (Bug 2): if a heading's container is a fixed-height
         # block (>100px taller than the heading itself) or the heading carries an
         # oversized top margin, collapse it so no dead gap ships in the PDF.
@@ -1447,9 +1492,27 @@ def _section_pages(pdf_path: str, entries) -> Dict[str, int]:
         s = html_lib.unescape(s)
         return re.sub(r"\s+", " ", s).strip()
 
+    def _skeleton(s: str) -> str:
+        """Whitespace + invisible joiners removed (extraction inserts both)."""
+        return re.sub(r"[\s\u200b-\u200f\u2060]+", "", s)
+
+    def _collapse_bn_dups(s: str) -> str:
+        """Collapse repeated identical Bengali codepoints. Shaped ligatures
+        sometimes extract with a duplicated matra/virama (e.g. '্যাা')."""
+        return re.sub(r"([\u0980-\u09FF])\1+", r"\1", s)
+
+    def _is_subseq(needle: str, hay: str) -> bool:
+        """True if every char of `needle` appears in `hay` in order. Last-resort
+        tolerance for Indic extraction reorderings; length-guarded by caller."""
+        it = iter(hay)
+        return all(c in it for c in needle)
+
     doc = fitz.open(pdf_path)
-    pages_text = [re.sub(r"\s+", " ", page.get_text()) for page in doc]
-    pages_text = [re.sub(r"\s+", " ", page.get_text()) for page in doc]
+    pages_raw = [page.get_text() for page in doc]
+    doc.close()
+    pages_text = [re.sub(r"\s+", " ", t) for t in pages_raw]
+    pages_skel = [_skeleton(t) for t in pages_raw]
+    pages_coll = [_collapse_bn_dups(s) for s in pages_skel]
     toc_idx = next(
         (i for i, txt in enumerate(pages_text) if "Table of Contents" in txt), -1
     )
@@ -1463,13 +1526,26 @@ def _section_pages(pdf_path: str, entries) -> Dict[str, int]:
             None,
         )
         if found is None:
+            # Bengali/Indic titles: extraction may duplicate marks or reorder
+            # glyphs, so fall back to skeleton/collapsed comparison.
+            skel = _skeleton(needle)
+            coll = _collapse_bn_dups(skel)
+            found = next(
+                (i for i in range(start, len(pages_coll)) if coll and coll in pages_coll[i]),
+                None,
+            )
+        if found is None and len(_skeleton(needle)) >= 8:
+            found = next(
+                (i for i in range(start, len(pages_skel)) if _is_subseq(_skeleton(needle), pages_skel[i])),
+                None,
+            )
+        if found is None:
             # Don't abort the whole PDF over a missing TOC page number — just
             # inherit the previous section's page so the outline still builds.
             print(f"SECTION_LOOKUP_MISS: {sid} ({title!r})")
             found = last
         last = found
         result[sid] = found + 1
-    doc.close()
     return result
 
 

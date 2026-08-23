@@ -69,7 +69,7 @@ function ModeButton({
     <button
       type="button"
       onClick={onClick}
-      className={`group relative flex items-center gap-3 overflow-hidden rounded-2xl border px-4 py-2.5 text-left transition-all duration-200 ${
+      className={`group relative flex min-w-[220px] flex-1 items-center gap-3 overflow-hidden rounded-2xl border px-4 py-2.5 text-left transition-all duration-200 sm:flex-none ${
         active
           ? "border-emerald-400/50 bg-gradient-to-r from-emerald-500/10 via-teal-500/[0.07] to-transparent shadow-[0_10px_28px_-14px_rgba(16,185,129,0.6)]"
           : "border-card-border bg-background hover:-translate-y-0.5 hover:border-accent/60 hover:bg-accent/[0.04] hover:shadow-[0_12px_32px_-16px_rgba(99,102,241,0.5)]"
@@ -447,6 +447,34 @@ export default function Home() {
           <p className="mt-3 text-lg text-text-muted">
             Transform your notes into beautifully crafted ebooks with AI
           </p>
+          {/* Mobile-only account row (the inline header chip is sm+) */}
+          {!authLoading && (
+            <div className="mt-4 flex justify-center sm:hidden">
+              {user ? (
+                <div className="flex max-w-[85vw] items-center gap-2 rounded-full border border-card-border bg-card px-3 py-1.5 text-xs">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-400" />
+                  <span className="truncate text-text-muted">{user.email}</span>
+                  <button
+                    onClick={logout}
+                    className="ml-1 shrink-0 text-text-muted transition-colors hover:text-red-400"
+                    title="Sign out"
+                  >
+                    Sign out
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => {
+                    setAuthModalMessage("");
+                    setAuthModalOpen(true);
+                  }}
+                  className="rounded-full border border-accent/30 bg-accent/10 px-4 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/20"
+                >
+                  Sign in
+                </button>
+              )}
+            </div>
+          )}
         </header>
 
         {/* Stepper */}

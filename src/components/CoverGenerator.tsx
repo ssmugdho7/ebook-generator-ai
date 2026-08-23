@@ -174,7 +174,7 @@ export default function CoverGenerator({
             {/* Styles */}
             <div>
               <h3 className="mb-3 text-sm font-semibold text-foreground">Style</h3>
-              <div className="grid grid-cols-5 gap-2">
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
                 {COVER_STYLES.map((style) => (
                   <button
                     key={style.id}

@@ -735,6 +735,13 @@ def render_book_document(book: dict, template: dict, page_map: dict = None, cove
             "accent": pal["accent"],
             "secondary": _brand_secondary(template, branding),
         }
+        if bengali:
+            # Letter-spacing visually shatters Indic conjuncts/matras.
+            extra_css += (
+                "\n.cover-brand .cb-company, .cover-brand .cb-website"
+                " { letter-spacing: normal !important; }\n"
+                ".cover-brand .cb-title { line-height: 1.5; }\n"
+            )
         cover_html = _branded_cover_block(branding, title, subtitle)
     else:
         cover_html = _cover_block(title, subtitle, cover_image)
@@ -863,6 +870,13 @@ def render_book_preview_html(book: dict, template: dict, cover_image: str = None
   gap: 12px; margin-top: 28px; padding: 10px 4px 2px; border-top: 1px solid {border};
   font-size: 11px; color: {pal.get('muted') or pal['text']}; }}
 """
+        if bengali:
+            # Keep the preview consistent with the PDF: no tracking on Indic text.
+            brand_css += (
+                "\n.pv-brand-cover .pvbc-company, .pv-brand-cover .pvbc-site"
+                " { letter-spacing: normal !important; }\n"
+                ".pv-brand-cover .pvbc-title { line-height: 1.5; }\n"
+            )
         esc = html_lib.escape
         card = ['<div class="pv-brand-cover">']
         if branding.get("logo_data"):

@@ -128,10 +128,11 @@ export default function BookEditor({
 
   return (
     <div className="grid gap-4 lg:grid-cols-[260px_1fr_300px]">
-      {/* LEFT: section list / TOC */}
+      {/* LEFT: section list / TOC — height-capped on mobile so the preview
+          and AI controls are never pushed far below the fold. */}
       <div className="rounded-2xl border border-card-border bg-card p-4">
         <h3 className="mb-3 text-sm font-semibold text-foreground">Sections</h3>
-        <ul className="space-y-1">
+        <ul className="max-h-52 space-y-1 overflow-y-auto lg:max-h-none">
           {sections.map((sec, i) => (
             <li key={i}>
               <button

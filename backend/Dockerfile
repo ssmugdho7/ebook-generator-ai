@@ -17,8 +17,10 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Chromium is downloaded by Playwright; these are just build/runtime basics.
+# fonts-noto-core ships Noto Sans Bengali (and friends) as a fontconfig-level
+# fallback, so Bangla glyphs survive even if the embedded webfont ever fails.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && apt-get install -y --no-install-recommends ca-certificates curl fonts-noto-core \
     && rm -rf /var/lib/apt/lists/*
 
 # 1) Python deps first so Docker layer caching survives app-code changes.
