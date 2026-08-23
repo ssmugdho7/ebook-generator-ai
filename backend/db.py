@@ -592,6 +592,29 @@ def delete_ebook(ebook_id: str) -> bool:
         return False
 
 
+def claim_ebook(ebook_id: str, user_id: str) -> bool:
+    """Adopt an anonymous (user_id NULL) ebook for an account.
+
+    Only succeeds while the row is unowned — first claim wins, so a signed-in
+    user can never take over a book that already belongs to someone else.
+    """
+    if not is_configured() or not ebook_id or not user_id:
+        return False
+    try:
+        with _connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE ebooks SET user_id = %s WHERE id = %s AND user_id IS NULL",
+                    (user_id, ebook_id),
+                )
+                claimed = cur.rowcount
+            conn.commit()
+        return bool(claimed)
+    except Exception as e:
+        print(f"DB_CLAIM_FAILED {type(e).__name__}: {e}")
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Share links (public read-only access to a single ebook)
 # ---------------------------------------------------------------------------

@@ -1701,19 +1701,25 @@ def edit_section(request: EditSectionRequest, authorization: Optional[str] = Hea
         )
 
     # Resolve the authoritative book: DB when configured, else the client payload.
-    # Ownership is enforced whenever the stored row belongs to a user. Identity
-    # comes from the verified JWT — never from a client-asserted body field.
+    # Identity comes from the verified JWT — never from a client-asserted field.
+    # Owned rows are strictly checked; orphaned (guest) rows stay editable only
+    # for anonymous callers, so one account can never touch another's draft.
     book = None
     if request.ebook_id and db.is_configured():
         entry = db.get_ebook(request.ebook_id)
         if entry and isinstance(entry.get("book"), dict):
             owner_id = entry.get("user_id")
+            user = _get_current_user(authorization)
             if owner_id:
-                user = _get_current_user(authorization)
                 if not user:
                     raise HTTPException(status_code=401, detail="Sign in to edit this ebook.")
                 if user["id"] != owner_id:
                     raise HTTPException(status_code=403, detail="Access denied")
+            elif user is not None:
+                # Signed-in caller on an unclaimed row: their own claim happens
+                # automatically at sign-in, so this orphan belongs to someone
+                # else's anonymous session.
+                raise HTTPException(status_code=403, detail="Access denied")
             book = entry["book"]
             # Branding overlay: the client's live view wins for this
             # application-controlled field. Branding persistence is best-effort
@@ -1816,11 +1822,28 @@ def edit_section(request: EditSectionRequest, authorization: Optional[str] = Hea
 
 
 @app.post("/api/download-pdf")
-def download_pdf(request: DownloadRequest):
+def download_pdf(request: DownloadRequest, authorization: Optional[str] = Header(None)):
     # sync `def` so FastAPI runs this in a worker thread; compile is CPU-bound
     # (Playwright) and must not block the event loop for other requests.
     if request.book:
         started = time.time()
+        # Storage integrity: a signed-in caller may only (over)write the stored
+        # copy of a book they own. Anonymous callers keep access to unclaimed
+        # drafts; other users' rows are untouchable.
+        if request.ebook_id and db.is_configured():
+            entry = db.get_ebook(request.ebook_id)
+            if entry:
+                owner_id = entry.get("user_id")
+                user = _get_current_user(authorization)
+                if owner_id:
+                    if not user:
+                        raise HTTPException(
+                            status_code=401, detail="Sign in to save this PDF to your library."
+                        )
+                    if user["id"] != owner_id:
+                        raise HTTPException(status_code=403, detail="Access denied")
+                elif user is not None:
+                    raise HTTPException(status_code=403, detail="Access denied")
         book_payload = request.book
         if request.cover_image is not None and not bookmod._is_valid_cover_data_url(request.cover_image):
             raise HTTPException(
@@ -1948,14 +1971,7 @@ def library(limit: int = 12, authorization: Optional[str] = Header(None)):
 
 @app.get("/api/library/{ebook_id}")
 def library_item(ebook_id: str, authorization: Optional[str] = Header(None)):
-    user = _require_user(authorization)
-    entry = db.get_ebook(ebook_id)
-    if not entry:
-        raise HTTPException(status_code=404, detail="Ebook not found")
-    # Verify ownership
-    owner_id = entry.get("user_id")
-    if owner_id and owner_id != user["id"]:
-        raise HTTPException(status_code=403, detail="Access denied")
+    entry, _user = _own_library_entry(ebook_id, authorization)
     return entry
 
 
@@ -1978,8 +1994,9 @@ def set_ebook_branding(ebook_id: str, payload: BrandingPayload, authorization: O
     entry = db.get_ebook(ebook_id)
     if not entry:
         raise HTTPException(status_code=404, detail="Ebook not found")
+    # Strict isolation: orphaned (guest) rows are invisible to all accounts.
     owner_id = entry.get("user_id")
-    if owner_id and owner_id != user["id"]:
+    if owner_id != user["id"]:
         raise HTTPException(status_code=403, detail="Access denied")
 
     book = entry.get("book")
@@ -2016,13 +2033,7 @@ def set_ebook_branding(ebook_id: str, payload: BrandingPayload, authorization: O
 @app.get("/api/library/{ebook_id}/pdf")
 def library_pdf(ebook_id: str, authorization: Optional[str] = Header(None)):
     """Serve the stored PDF — no Gemini call, no Chromium render, instant."""
-    user = _require_user(authorization)
-    entry = db.get_ebook(ebook_id)
-    if not entry:
-        raise HTTPException(status_code=404, detail="Ebook not found")
-    owner_id = entry.get("user_id")
-    if owner_id and owner_id != user["id"]:
-        raise HTTPException(status_code=403, detail="Access denied")
+    _own_library_entry(ebook_id, authorization)
     data = db.get_pdf(ebook_id)
     if not data:
         raise HTTPException(
@@ -2041,16 +2052,36 @@ def library_pdf(ebook_id: str, authorization: Optional[str] = Header(None)):
 
 @app.delete("/api/library/{ebook_id}")
 def library_delete(ebook_id: str, authorization: Optional[str] = Header(None)):
+    _own_library_entry(ebook_id, authorization)
+    if not db.delete_ebook(ebook_id):
+        raise HTTPException(status_code=404, detail="Ebook not found")
+    return {"deleted": ebook_id}
+
+
+@app.post("/api/library/{ebook_id}/claim")
+def claim_library_item(ebook_id: str, authorization: Optional[str] = Header(None)):
+    """Adopt an anonymous guest-generated ebook after signing in.
+
+    First claim wins: unclaimed drafts attach to the caller's account, rows
+    that already belong to anyone (including the caller) are left untouched,
+    and other users' books stay 403. The studio calls this automatically when
+    auth state appears, so a guest keeps uninterrupted access to their work.
+    """
     user = _require_user(authorization)
+    if not db.is_configured():
+        raise HTTPException(status_code=503, detail="Library storage is not configured")
     entry = db.get_ebook(ebook_id)
     if not entry:
         raise HTTPException(status_code=404, detail="Ebook not found")
     owner_id = entry.get("user_id")
-    if owner_id and owner_id != user["id"]:
+    if owner_id == user["id"]:
+        return {"claimed": True, "already_owner": True}
+    if owner_id is not None:
         raise HTTPException(status_code=403, detail="Access denied")
-    if not db.delete_ebook(ebook_id):
-        raise HTTPException(status_code=404, detail="Ebook not found")
-    return {"deleted": ebook_id}
+    claimed = db.claim_ebook(ebook_id, user["id"])
+    if claimed:
+        db.log_event("claim", "ok", ebook_id=ebook_id)
+    return {"claimed": bool(claimed)}
 
 
 # ---------------------------------------------------------------------------
@@ -2068,13 +2099,17 @@ class ShareRequest(BaseModel):
 
 
 def _own_library_entry(ebook_id: str, authorization: Optional[str]) -> tuple:
-    """Shared guard for owner-only library sub-endpoints. Returns (entry, user)."""
+    """Shared guard for owner-only library sub-endpoints. Returns (entry, user).
+
+    Strict isolation: a row with no owner (guest-generated) is invisible to
+    every signed-in account — guests keep anonymous access until they sign in,
+    at which point the frontend claims the draft for their account.
+    """
     user = _require_user(authorization)
     entry = db.get_ebook(ebook_id)
     if not entry:
         raise HTTPException(status_code=404, detail="Ebook not found")
-    owner_id = entry.get("user_id")
-    if owner_id and owner_id != user["id"]:
+    if entry.get("user_id") != user["id"]:
         raise HTTPException(status_code=403, detail="Access denied")
     return entry, user
 

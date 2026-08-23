@@ -18,6 +18,7 @@ import {
   getLibraryBook,
   downloadStoredPdf,
   deleteLibraryItem,
+  claimLibraryBook,
   saveEbookBranding,
   type TemplateInfo,
   type Book,
@@ -189,45 +190,28 @@ export default function Home() {
     };
   }, [refreshLibrary]);
 
-  // ---- Book Studio persistence (so an edited ebook stays editable on refresh) ----
+  // ---- Book Studio state is intentionally NOT persisted ----
+  // A reload always lands on the fresh opening page. Any stale draft left by
+  // an earlier session (possibly a different person on a shared browser) is
+  // wiped so one user can never see another's work-in-progress.
   const STUDIO_KEY = "ebook-studio-v1";
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(STUDIO_KEY);
-      if (!raw) return;
-      const s = JSON.parse(raw);
-      if (s && s.book) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setBook(s.book);
-        setEbookId(s.ebook_id ?? null);
-        setTemplateId(s.template_id || "minimal-light");
-        setLanguage(s.language === "bn" ? "bn" : "en");
-        setSelectedCover(s.cover_image ?? null);
-      }
+      localStorage.removeItem(STUDIO_KEY);
     } catch {
-      /* ignore corrupt storage */
+      /* storage unavailable; nothing to clean */
     }
     // run once on mount
   }, []);
 
+  // ---- Claim guest-generated drafts on sign-in ----
+  // Books made before signing in are anonymous server-side; claiming attaches
+  // them to this account so they stay accessible here and to no one else.
   useEffect(() => {
-    if (!book) return;
-    try {
-      localStorage.setItem(
-        STUDIO_KEY,
-        JSON.stringify({
-          book,
-          ebook_id: ebookId,
-          template_id: templateId,
-          language,
-          cover_image: selectedCover,
-        })
-      );
-    } catch {
-      /* storage may be full/unavailable; non-fatal */
-    }
-  }, [book, ebookId, templateId, language, selectedCover]);
+    if (!user || !ebookId) return;
+    claimLibraryBook(ebookId).catch(() => {});
+  }, [user, ebookId]);
 
   const selectedTemplate = templates.find((t) => t.id === templateId);
 

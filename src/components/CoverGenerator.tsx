@@ -66,6 +66,7 @@ export default function CoverGenerator({
     return auto ? auto : NONE;
   });
   const [tagline, setTagline] = useState("");
+  const [badgeText, setBadgeText] = useState("");
   const [styleId, setStyleId] = useState<CoverStyleId>("bold-editorial");
   const [sizeId, setSizeId] = useState("standard");
   const [downloading, setDownloading] = useState(false);
@@ -86,13 +87,14 @@ export default function CoverGenerator({
     (style: CoverStyleId, size: CoverSize) => ({
       title,
       subtitle: subtitle || "A Visual Learning Guide",
-      tagline,
+      tagline: tagline.trim(),
+      badge_text: badgeText.trim(),
       punchWord: punch === NONE ? "none" : punch,
       styleId: style,
       size,
       palette,
     }),
-    [title, subtitle, tagline, punch, palette]
+    [title, subtitle, tagline, badgeText, punch, palette]
   );
 
   useEffect(() => {
@@ -112,7 +114,7 @@ export default function CoverGenerator({
       }
     }, 120);
     return () => clearTimeout(timer);
-  }, [styleId, sizeId, punch, tagline, palette, buildRequest, currentSize]);
+  }, [styleId, sizeId, punch, tagline, badgeText, palette, buildRequest, currentSize]);
 
   useEffect(() => {
     let cancelled = false;
@@ -231,13 +233,25 @@ export default function CoverGenerator({
               </label>
               <label className="block">
                 <span className="mb-1.5 block text-sm font-semibold text-foreground">
-                  Tagline (optional)
+                  Tagline <span className="font-normal text-text-muted">(optional)</span>
                 </span>
                 <input
                   value={tagline}
                   onChange={(e) => setTagline(e.target.value)}
-                  placeholder="e.g. Start building today"
+                  placeholder="Empty = no tagline line"
                   maxLength={60}
+                  className="w-full rounded-lg border border-card-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-text-muted focus:border-accent focus:outline-none"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-semibold text-foreground">
+                  Badge label <span className="font-normal text-text-muted">(optional)</span>
+                </span>
+                <input
+                  value={badgeText}
+                  onChange={(e) => setBadgeText(e.target.value)}
+                  placeholder='e.g. "Field Guide"'
+                  maxLength={30}
                   className="w-full rounded-lg border border-card-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-text-muted focus:border-accent focus:outline-none"
                 />
               </label>

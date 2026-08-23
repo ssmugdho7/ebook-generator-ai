@@ -43,6 +43,8 @@ export interface CoverRequest {
   title: string;
   subtitle?: string;
   tagline?: string;
+  /** Small label above the title ("Field Guide", …). Empty -> no badge at all. */
+  badge_text?: string;
   punchWord?: string | null;
   styleId: CoverStyleId;
   size: CoverSize;
@@ -697,6 +699,8 @@ interface StyleCtx {
   title: string;
   subtitle: string;
   tagline: string;
+  /** Optional badge/kicker label. Empty means "render no badge". */
+  badgeText: string;
   checks: ContrastCheck[];
   info: CoverResult["info"];
 }
@@ -727,8 +731,9 @@ function renderBoldEditorial(ctx: StyleCtx): string {
   parts.push(sRect(0, H - slabH, W, slabH, slabBg));
   parts.push(bandGlow(W * 0.82, H - slabH * 0.3, W * 0.5, slabFg, 0.1));
 
-  const badge = drawBadge(ctx.checks, pal, "A Practical Guide", PAD, H * 0.09, W * 0.018, { fieldBg: bg, onDark: false });
-  parts.push(badge.svg);
+  if (ctx.badgeText) {
+    parts.push(drawBadge(ctx.checks, pal, ctx.badgeText, PAD, H * 0.09, W * 0.018, { fieldBg: bg, onDark: false }).svg);
+  }
 
   const title = textBlock(
     {
@@ -780,10 +785,12 @@ function renderBoldEditorial(ctx: StyleCtx): string {
   parts.push(sub.svg);
 
   const bottomY = H - slabH * 0.45;
-  parts.push(sLine(PAD, bottomY - W * 0.016, PAD + W * 0.1, bottomY - W * 0.016, slabFg, W * 0.003));
-  parts.push(
-    sTextLine(ctx.tagline || "Start reading today", PAD, bottomY, `font-family="system-ui, sans-serif" font-weight="500" font-size="${W * 0.02}px"`, slabFg, "start")
-  );
+  if (ctx.tagline) {
+    parts.push(sLine(PAD, bottomY - W * 0.016, PAD + W * 0.1, bottomY - W * 0.016, slabFg, W * 0.003));
+    parts.push(
+      sTextLine(ctx.tagline, PAD, bottomY, `font-family="system-ui, sans-serif" font-weight="500" font-size="${W * 0.02}px"`, slabFg, "start")
+    );
+  }
 
   ctx.info.titlePx = title.fontSize;
   ctx.info.subtitlePx = sub.fontSize;
@@ -814,8 +821,9 @@ function renderIllustrated(ctx: StyleCtx): string {
     )
   );
 
-  const badge = drawBadge(ctx.checks, pal, "Discover", PAD, H * 0.06, W * 0.016, { fieldBg: bg, onDark: false });
-  parts.push(badge.svg);
+  if (ctx.badgeText) {
+    parts.push(drawBadge(ctx.checks, pal, ctx.badgeText, PAD, H * 0.06, W * 0.016, { fieldBg: bg, onDark: false }).svg);
+  }
 
   const title = textBlock(
     {
@@ -866,11 +874,13 @@ function renderIllustrated(ctx: StyleCtx): string {
   const row = drawIconRow(ctx.checks, pal, ctx.topic.icons, W / 2, H * 0.80, W * 0.085, W * 0.018, { fieldBg: bg, onDark: false });
   parts.push(row.svg);
 
-  const ruleY = H * 0.90;
-  parts.push(sLine(PAD, ruleY, PAD + W * 0.14, ruleY, c.accent, W * 0.004));
-  parts.push(
-    sTextLine(ctx.tagline || "Made for curious minds", PAD, ruleY + W * 0.028, `font-family="system-ui, sans-serif" font-weight="500" font-size="${W * 0.018}px"`, c.muted, "start")
-  );
+  if (ctx.tagline) {
+    const ruleY = H * 0.90;
+    parts.push(sLine(PAD, ruleY, PAD + W * 0.14, ruleY, c.accent, W * 0.004));
+    parts.push(
+      sTextLine(ctx.tagline, PAD, ruleY + W * 0.028, `font-family="system-ui, sans-serif" font-weight="500" font-size="${W * 0.018}px"`, c.muted, "start")
+    );
+  }
 
   ctx.info.titlePx = title.fontSize;
   ctx.info.subtitlePx = sub.fontSize;
@@ -900,8 +910,9 @@ function renderBadgeGrid(ctx: StyleCtx): string {
   parts.push(sRect(0, 0, W, W * 0.012, c.accent));
   parts.push(sRect(W - W * 0.012, 0, W * 0.012, W * 0.012, c.accent));
 
-  const badge = drawBadge(ctx.checks, pal, "Field Guide", PAD, H * 0.09, W * 0.016, { fieldBg: bg, onDark: false });
-  parts.push(badge.svg);
+  if (ctx.badgeText) {
+    parts.push(drawBadge(ctx.checks, pal, ctx.badgeText, PAD, H * 0.09, W * 0.016, { fieldBg: bg, onDark: false }).svg);
+  }
 
   const row = drawIconRow(ctx.checks, pal, ctx.topic.icons, W / 2, H * 0.20, W * 0.095, W * 0.02, { fieldBg: bg, onDark: false });
   parts.push(row.svg);
@@ -952,11 +963,13 @@ function renderBadgeGrid(ctx: StyleCtx): string {
   );
   parts.push(sub.svg);
 
-  const ruleY = H * 0.78;
-  parts.push(sLine(PAD, ruleY, W - PAD, ruleY, c.accent, W * 0.004));
-  parts.push(
-    sTextLine(ctx.tagline || "Build something great", W / 2, H * 0.84, `font-family="system-ui, sans-serif" font-weight="600" font-size="${W * 0.02}px"`, c.accent, "middle")
-  );
+  if (ctx.tagline) {
+    const ruleY = H * 0.78;
+    parts.push(sLine(PAD, ruleY, W - PAD, ruleY, c.accent, W * 0.004));
+    parts.push(
+      sTextLine(ctx.tagline, W / 2, H * 0.84, `font-family="system-ui, sans-serif" font-weight="600" font-size="${W * 0.02}px"`, c.accent, "middle")
+    );
+  }
 
   ctx.info.titlePx = title.fontSize;
   ctx.info.subtitlePx = sub.fontSize;
@@ -1343,8 +1356,9 @@ function renderMinimalLux(ctx: StyleCtx): string {
   parts.push(sLine(PAD, PAD * 0.55, W - PAD, PAD * 0.55, hairline, W * 0.003));
   parts.push(sLine(PAD, PAD * 0.55, PAD, PAD * 0.55 + W * 0.03, c.accent, W * 0.006));
 
-  const badge = drawBadge(ctx.checks, pal, "Essential", W / 2, H * 0.16, W * 0.014, { fieldBg: bg, onDark: false });
-  parts.push(badge.svg);
+  if (ctx.badgeText) {
+    parts.push(drawBadge(ctx.checks, pal, ctx.badgeText, W / 2, H * 0.16, W * 0.014, { fieldBg: bg, onDark: false }).svg);
+  }
 
   const title = textBlock(
     {
@@ -1393,11 +1407,13 @@ function renderMinimalLux(ctx: StyleCtx): string {
   );
   parts.push(sub.svg);
 
-  const dividerY = H * 0.66;
-  parts.push(sLine(W / 2 - W * 0.05, dividerY, W / 2 + W * 0.05, dividerY, hairline, W * 0.003));
-  parts.push(
-    sTextLine(ctx.tagline || "Less is more", W / 2, H * 0.72, `font-family="system-ui, sans-serif" font-weight="400" font-size="${W * 0.016}px"`, c.muted, "middle")
-  );
+  if (ctx.tagline) {
+    const dividerY = H * 0.66;
+    parts.push(sLine(W / 2 - W * 0.05, dividerY, W / 2 + W * 0.05, dividerY, hairline, W * 0.003));
+    parts.push(
+      sTextLine(ctx.tagline, W / 2, H * 0.72, `font-family="system-ui, sans-serif" font-weight="400" font-size="${W * 0.016}px"`, c.muted, "middle")
+    );
+  }
 
   parts.push(sRect(0, H - W * 0.006, W, W * 0.006, c.accent));
   parts.push(sLine(PAD * 0.9, H - PAD, W - PAD * 0.9, H - PAD, hairline, W * 0.003));
@@ -1456,6 +1472,7 @@ export function renderCover(req: CoverRequest): CoverResult {
     title: req.title,
     subtitle: req.subtitle || "A Visual Learning Guide",
     tagline: req.tagline || "",
+    badgeText: (req.badge_text || "").trim(),
     checks,
     info,
   };

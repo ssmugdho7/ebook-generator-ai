@@ -304,6 +304,21 @@ export async function deleteLibraryItem(id: string): Promise<void> {
   if (!res.ok) throw new Error("Could not delete that ebook");
 }
 
+/**
+ * Attach a guest-generated ebook to the signed-in account (first claim wins).
+ * Called automatically when auth state appears so work started before signing
+ * in stays accessible — and becomes invisible to everyone else.
+ */
+export async function claimLibraryBook(id: string): Promise<boolean> {
+  const res = await fetch(`${API_BASE}/api/library/${encodeURIComponent(id)}/claim`, {
+    method: "POST",
+    headers: _authHeaders(),
+  });
+  if (!res.ok) return false;
+  const data = await res.json();
+  return Boolean(data.claimed);
+}
+
 /* -------------------------------------------------------------------------- */
 /* helpers                                                                    */
 /* -------------------------------------------------------------------------- */
