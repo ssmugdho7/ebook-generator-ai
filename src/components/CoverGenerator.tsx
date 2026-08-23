@@ -153,7 +153,9 @@ export default function CoverGenerator({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="mx-4 max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-2xl border border-card-border bg-card p-6">
+      {/* my-auto (not items-center alone) keeps a tall modal fully
+          scrollable instead of clipping its top edge. */}
+      <div className="mx-4 my-auto max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-2xl border border-card-border bg-card p-6">
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h2 className="text-xl font-bold text-foreground">Download Cover</h2>
@@ -274,15 +276,16 @@ export default function CoverGenerator({
             </div>
           </div>
 
-          {/* Preview + download */}
-          <div className="space-y-4">
+          {/* Preview + download — shown FIRST on phones so users see the
+              artwork and its actions without scrolling past the whole form */}
+          <div className="order-first space-y-4 lg:order-none">
             <div className="overflow-hidden rounded-xl border border-card-border bg-white">
               {preview ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={preview}
                   alt="Cover preview"
-                  className="h-auto w-full"
+                  className="mx-auto h-auto max-h-[52vh] w-full object-contain sm:max-h-none"
                   style={{ aspectRatio: `${currentSize.width}/${currentSize.height}` }}
                 />
               ) : (

@@ -599,18 +599,20 @@ export default function Home() {
                   <LoadingSpinner size="sm" /> Loading templates...
                 </div>
               ) : (
-                <div className="grid gap-3 sm:grid-cols-2">
+                /* Two-up grid even on phones so all four designs stay
+                   visible without a tall scroll; cards shrink accordingly. */
+                <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
                   {templates.map((t) => (
                     <button
                       key={t.id}
                       onClick={() => setTemplateId(t.id)}
-                      className={`group rounded-xl border p-4 text-left transition-all ${
+                      className={`group rounded-xl border p-3 text-left transition-all sm:p-4 ${
                         templateId === t.id
                           ? "border-accent/60 bg-accent/10 ring-1 ring-accent/30"
                           : "border-card-border bg-background hover:border-accent/30 hover:bg-accent/5"
                       }`}
                     >
-                      <div className="mb-3 h-14 overflow-hidden rounded-lg border border-card-border"
+                      <div className="mb-2 h-10 overflow-hidden rounded-lg border border-card-border sm:mb-3 sm:h-14"
                         style={{
                           background: t.palette.page_bg,
                           borderTop: `6px solid ${t.palette.accent}`,
@@ -618,25 +620,25 @@ export default function Home() {
                       >
                         <div className="px-2 py-1.5">
                           <div
-                            className="h-2 w-16 rounded"
+                            className="h-1.5 w-10 rounded sm:h-2 sm:w-16"
                             style={{ background: t.palette.accent }}
                           />
                           <div
-                            className="mt-1.5 h-1.5 w-24 rounded"
+                            className="mt-1 h-1 w-14 rounded sm:mt-1.5 sm:h-1.5 sm:w-24"
                             style={{ background: t.palette.heading, opacity: 0.85 }}
                           />
                           <div
-                            className="mt-1 h-1.5 w-20 rounded"
+                            className="mt-0.5 h-1 w-12 rounded sm:mt-1 sm:h-1.5 sm:w-20"
                             style={{ background: t.palette.text, opacity: 0.5 }}
                           />
                         </div>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-foreground">
+                        <span className="text-[13px] font-medium leading-tight text-foreground sm:text-sm">
                           {t.label}
                         </span>
                       </div>
-                      <p className="mt-1 text-xs leading-relaxed text-text-muted">
+                      <p className="mt-1 hidden text-xs leading-relaxed text-text-muted sm:block">
                         {t.description}
                       </p>
                     </button>
@@ -784,9 +786,47 @@ export default function Home() {
         {/* Step 3: Preview + download */}
         {book && (
           <div className="space-y-6">
+            {/* Download gate explainer — makes the cover/branding requirement
+                obvious instead of a mysteriously disabled button. */}
+            {canDownload ? (
+              <div className="flex items-start gap-3 rounded-2xl border border-emerald-400/25 bg-emerald-400/10 p-4">
+                <svg className="mt-0.5 h-5 w-5 shrink-0 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p className="text-xs leading-relaxed text-text-muted sm:text-sm">
+                  Your PDF is ready to download{coverActive && brandingActive
+                    ? " with your custom cover and branding baked in"
+                    : coverActive
+                      ? " with your custom cover on the front"
+                      : " with your business branding applied"}
+                  . Tap <span className="font-semibold text-foreground">Download PDF</span> in the panel below.
+                </p>
+              </div>
+            ) : (
+              <div className="flex items-start gap-3 rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4">
+                <svg className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+                <div>
+                  <p className="text-sm font-semibold text-foreground">
+                    One step left before you can download
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-text-muted sm:text-sm">
+                    Every ebook needs a finishing touch. Choose{" "}
+                    <span className="font-semibold text-foreground">Custom Cover</span> to design
+                    your own front page, or{" "}
+                    <span className="font-semibold text-foreground">Business Branding</span> to add
+                    your logo &amp; colors — or both. The{" "}
+                    <span className="font-semibold text-foreground">Download PDF</span> button
+                    unlocks as soon as one is active.
+                  </p>
+                </div>
+              </div>
+            )}
+
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-card-border bg-card p-5 backdrop-blur-sm">
-              <div>
-                <h2 className="text-lg font-semibold text-foreground">{book.title}</h2>
+              <div className="min-w-0">
+                <h2 className="truncate text-lg font-semibold text-foreground">{book.title}</h2>
                 <p className="mt-0.5 text-sm text-text-muted">
                   {book.sections.length} sections · {selectedTemplate?.label ?? book.template_id}
                   {pageCount !== null && (
@@ -796,7 +836,7 @@ export default function Home() {
                   )}
                 </p>
               </div>
-              <div className="flex flex-wrap items-center gap-2.5">
+              <div className="flex w-full flex-wrap items-center gap-2.5 sm:w-auto">
                 <button
                   onClick={() => {
                     setBook(null);
@@ -863,36 +903,29 @@ export default function Home() {
                   onClick={() => setShowBrandingModal(true)}
                 />
 
-                <div className="relative flex flex-col items-end">
-                  <button
-                    onClick={handleDownload}
-                    disabled={isDownloading || !canDownload}
-                    title={
-                      canDownload
-                        ? undefined
-                        : "Pick a cover or add branding to unlock your download"
-                    }
-                    className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 transition-all hover:from-blue-500 hover:to-violet-500 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:from-blue-600 disabled:hover:to-violet-600 disabled:shadow-none"
-                  >
-                    {isDownloading ? (
-                      <>
-                        <LoadingSpinner size="sm" /> Compiling PDF…
-                      </>
-                    ) : (
-                      <>
-                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l3-3m-3 3l-3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        Download PDF
-                      </>
-                    )}
-                  </button>
-                  {!canDownload && !isDownloading && (
-                    <span className="mt-1 max-w-[220px] text-right text-[10px] font-medium leading-tight text-text-muted">
-                      Add a cover or branding to unlock
-                    </span>
+                <button
+                  onClick={handleDownload}
+                  disabled={isDownloading || !canDownload}
+                  title={
+                    canDownload
+                      ? undefined
+                      : "Pick a cover or add branding to unlock your download"
+                  }
+                  className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 transition-all hover:from-blue-500 hover:to-violet-500 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:from-blue-600 disabled:hover:to-violet-600 disabled:shadow-none"
+                >
+                  {isDownloading ? (
+                    <>
+                      <LoadingSpinner size="sm" /> Compiling PDF…
+                    </>
+                  ) : (
+                    <>
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l3-3m-3 3l-3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      Download PDF
+                    </>
                   )}
-                </div>
+                </button>
 
                 {/* Publish a read-only link (saved ebooks only) */}
                 {ebookId && (
@@ -931,7 +964,7 @@ export default function Home() {
         <footer className="mt-12 border-t border-card-border pt-6 pb-8 text-center text-xs text-text-muted">
           <p className="font-medium text-foreground">Ebook Generator</p>
           <p className="mt-1">Transform notes into publication-ready ebooks</p>
-          <div className="mt-4 flex items-center justify-center gap-4 text-text-muted">
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-text-muted">
             <a href="mailto:shahmarufsiraj@gmail.com" className="transition-colors hover:text-accent">
               shahmarufsiraj@gmail.com
             </a>

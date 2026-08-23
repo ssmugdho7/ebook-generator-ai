@@ -153,7 +153,7 @@ export default function BrandingPanel({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="mx-4 max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-card-border bg-card p-6">
+      <div className="mx-4 my-auto max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-card-border bg-card p-6">
         {/* Header */}
         <div className="mb-6 flex items-start justify-between">
           <div>

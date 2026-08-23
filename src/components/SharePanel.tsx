@@ -100,7 +100,7 @@ export default function SharePanel({ ebookId, title, coverImage, onClose }: Shar
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="mx-4 max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-card-border bg-card p-6">
+      <div className="mx-4 my-auto max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-card-border bg-card p-6">
         {/* Header */}
         <div className="mb-5 flex items-start justify-between gap-3">
           <div className="min-w-0">

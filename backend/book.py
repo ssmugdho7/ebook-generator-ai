@@ -914,7 +914,7 @@ def render_book_preview_html(book: dict, template: dict, cover_image: str = None
 <style>
 html {{ scroll-behavior: smooth; }}
 html, body {{ margin: 0; padding: 0; }}
-body {{ padding: 24px; background: {template['palette']['page_bg']}; }}
+body {{ padding: 30px 28px; background: {template['palette']['page_bg']}; }}
 .fallback-diagram {{ display: block; margin: 3mm auto; max-width: 100%; height: auto; }}
 {template_pygments_css(template)}
 {build_template_css(template, bengali=bengali)}
