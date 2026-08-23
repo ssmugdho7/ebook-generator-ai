@@ -34,17 +34,21 @@ export default function SharePanel({ ebookId, title, coverImage, onClose }: Shar
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [authError, setAuthError] = useState(false);
 
   useEffect(() => {
-    // Status fetch kicked off directly; every setState lands in a promise
-    // callback (after await points), never synchronously inside the effect.
     let cancelled = false;
     getShareStatus(ebookId)
       .then((s) => {
         if (!cancelled) setShare(s);
       })
-      .catch(() => {
-        if (!cancelled) setError("Could not load the share status.");
+      .catch((e) => {
+        if (!cancelled) {
+          const msg = e instanceof Error ? e.message : "Could not load the share status";
+          const isAuth = /401|403|auth|sign in/i.test(msg);
+          setError(isAuth ? "Please sign in to manage sharing." : msg);
+          setAuthError(isAuth);
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -121,6 +125,24 @@ export default function SharePanel({ ebookId, title, coverImage, onClose }: Shar
         {loading ? (
           <div className="flex justify-center py-10">
             <LoadingSpinner />
+          </div>
+        ) : authError ? (
+          <div className="flex flex-col items-center text-center py-6">
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full border border-indigo-500/30 bg-indigo-500/10">
+              <svg className="h-6 w-6 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.474c-.625-.782-1.5-1.754-1.5-2.474m0 0h7.029m-7.029 0a6.006 6.006 0 01-3-1.5m3 1.5a3 3 0 00-3-3m0 0a6.006 6.006 0 013 1.5m-3-1.5a6.006 6.006 0 00-3-1.5" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-semibold text-foreground">Sign in required</h3>
+            <p className="mt-2 text-sm text-text-muted">
+              You need to be signed in to create and manage share links.
+            </p>
+            <button
+              onClick={onClose}
+              className="mt-5 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition-all hover:from-indigo-500 hover:to-violet-500"
+            >
+              Sign in to continue
+            </button>
           </div>
         ) : share ? (
           /* ------------------------- active link ------------------------- */

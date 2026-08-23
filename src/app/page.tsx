@@ -136,11 +136,14 @@ function Navbar({ onAuthClick }: { onAuthClick: () => void }) {
           </div>
 
           <div className="hidden items-center gap-6 md:flex">
-            <a href="#features" className="text-sm font-medium text-text-muted transition-colors hover:text-foreground">
-              Features
+            <a href="#generator" className="text-sm font-medium text-text-muted transition-colors hover:text-foreground">
+              Quick Start
             </a>
             <a href="#how-it-works" className="text-sm font-medium text-text-muted transition-colors hover:text-foreground">
               How it works
+            </a>
+            <a href="#features" className="text-sm font-medium text-text-muted transition-colors hover:text-foreground">
+              Features
             </a>
             <a href="#templates" className="text-sm font-medium text-text-muted transition-colors hover:text-foreground">
               Templates
@@ -375,7 +378,7 @@ function FeaturesBento() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A9 9 0 106 3.75c1.052 0 2.062.18 3 .512m14.25 0a8.966 8.966 0 00-3-.512 9 9 0 00-9 9c0 1.553.388 3.05 1.112 4.384" />
         </svg>
       ),
-      span: "md:col-span-2",
+      span: "",
       color: "from-indigo-500/10 to-blue-500/5",
       iconColor: "text-indigo-500",
     },
@@ -412,7 +415,7 @@ function FeaturesBento() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 21l5.25-11.25L21 21m-9-3h7.5M3 5.621a48.474 48.474 0 016-.371m0 0c1.12 0 2.233.038 3.334.114M9 5.25V3m3.334 2.364C11.176 10.658 9.583 12.75 9 15m2.042-2.042a48.474 48.474 0 016-.371m0 0c1.12 0 2.233.038 3.334.114M15 21l-1.5-6m-6 6l1.5-6" />
         </svg>
       ),
-      span: "md:col-span-2",
+      span: "",
       color: "from-amber-500/10 to-orange-500/5",
       iconColor: "text-amber-500",
     },
@@ -837,21 +840,8 @@ export default function Home() {
     <div className="min-h-screen bg-background text-foreground">
       <Navbar onAuthClick={handleAuthClick} />
 
-      {!book && (
-        <>
-          <HeroSection />
-          <StatsBar />
-          <HowItWorks />
-
-          {templates.length > 0 && (
-            <TemplatesSection templates={templates} />
-          )}
-
-          <FeaturesBento />
-
-          <CtaSection onAuthClick={handleAuthClick} />
-        </>
-      )}
+      <HeroSection />
+      <StatsBar />
 
       {/* Generator Section */}
       <section id="generator" className="border-t border-card-border bg-card/30 py-16 sm:py-24">
@@ -1212,7 +1202,7 @@ export default function Home() {
                       )}
                     </button>
 
-                    {ebookId && (
+                     {ebookId && user && (
                       <button
                         onClick={() => setShareTarget({ id: ebookId, title: book.title })}
                         title="Create a public read-only link"
@@ -1246,6 +1236,20 @@ export default function Home() {
           )}
         </div>
       </section>
+
+      {!book && (
+        <>
+          <HowItWorks />
+
+          <FeaturesBento />
+
+          {templates.length > 0 && (
+            <TemplatesSection templates={templates} />
+          )}
+
+          <CtaSection onAuthClick={handleAuthClick} />
+        </>
+      )}
 
       {/* Library — recent ebooks kept in Neon Postgres */}
       {!book && !user && !authLoading && (
