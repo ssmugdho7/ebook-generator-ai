@@ -114,6 +114,21 @@ export interface TemplateInfo {
   };
 }
 
+export interface EbookBranding {
+  enabled: boolean;
+  company_name: string;
+  logo_data: string;
+  tagline: string;
+  website: string;
+  contact_text: string;
+  copyright_text: string;
+  footer_text: string;
+  primary_color: string | null;
+  secondary_color: string | null;
+  about_enabled: boolean;
+  about_description: string;
+}
+
 export interface Book {
   title: string;
   subtitle?: string;
@@ -124,6 +139,9 @@ export interface Book {
     title_scale?: "sm" | "lg";
     blocks: Record<string, unknown>[];
   }[];
+  // Optional white-label branding. Application-controlled metadata — the AI
+  // pipeline never reads or rewrites it; the backend validates it on every use.
+  branding?: EbookBranding | null;
 }
 
 export type EbookLanguage = "en" | "bn";
@@ -339,10 +357,11 @@ export async function editSection(payload: {
   action: EditAction;
   instruction?: string;
   language?: "en" | "bn";
+  userId?: string | null;
 }): Promise<EditSectionResponse> {
   const res = await fetch(`${API_BASE}/api/edit-section`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: _authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({
       ebook_id: payload.ebook_id ?? null,
       book: payload.book,
@@ -350,6 +369,7 @@ export async function editSection(payload: {
       action: payload.action,
       instruction: payload.instruction ?? null,
       language: payload.language ?? "en",
+      user_id: payload.userId ?? null,
     }),
   });
   if (!res.ok) {
@@ -357,4 +377,29 @@ export async function editSection(payload: {
     throw new Error(err.detail || "Section edit failed");
   }
   return res.json();
+}
+
+/* -------------------------------------------------------------------------- */
+/* Business branding (white-label ebooks)                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Upload a company logo and get back a normalized, validated PNG data URL.
+ *
+ * The client pre-resizes to keep uploads small; the server independently
+ * re-validates and re-encodes the image (magic-byte sniffing, size caps,
+ * PyMuPDF re-encode), so this is a convenience — not a security boundary.
+ */
+export async function uploadBrandLogo(file: Blob): Promise<string> {
+  const res = await fetch(`${API_BASE}/api/branding/logo`, {
+    method: "POST",
+    headers: _authHeaders({ "Content-Type": "application/octet-stream" }),
+    body: file,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Logo upload failed" }));
+    throw new Error(err.detail || "Failed to upload logo");
+  }
+  const data = await res.json();
+  return data.logo_data as string;
 }

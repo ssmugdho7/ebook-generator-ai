@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from typing import Optional
@@ -17,8 +17,10 @@ from google.genai import types
 from pydantic import BaseModel
 
 import book as bookmod
+import branding as brandmod
 import db
 import editor as editormod
+import pipeline as pipelinemod
 import templates as templatesmod
 from key_manager import create_key_manager, RateLimitError
 from pipeline import compile_markdown_to_pdf, compile_document_to_pdf
@@ -316,6 +318,92 @@ def auth_me(authorization: Optional[str] = Header(None)):
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return {"user": {"id": user["id"], "email": user["email"]}}
+
+
+# ---------------------------------------------------------------------------
+# Business branding: secure logo upload
+# ---------------------------------------------------------------------------
+
+MAX_LOGO_UPLOAD_BYTES = 10 * 1024 * 1024  # wire cap; decoded/re-encoded far smaller
+MAX_LOGO_DIMENSION = 512  # logos render at most ~28mm tall; 512px is plenty
+
+
+def _sniff_image_kind(data: bytes) -> Optional[str]:
+    """Magic-byte image detection. Never trusts a client-declared MIME type."""
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    if data[:3] == b"\xff\xd8\xff":
+        return "jpeg"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    return None
+
+
+def _normalize_logo(data: bytes) -> Optional[str]:
+    """Decode an uploaded logo, clamp it to MAX_LOGO_DIMENSION, re-encode as PNG.
+
+    Re-encoding through PyMuPDF is the real security boundary: whatever tricks
+    hid in the original file (EXIF payloads, malformed chunks, polyglots) are
+    discarded — only clean raster pixels survive. Returns a PNG data URL or
+    None when the image cannot be decoded.
+    """
+    import base64
+
+    import fitz
+
+    try:
+        pix = fitz.Pixmap(data)  # accepts PNG/JPEG/WebP bytes
+        # Normalize exotic color spaces (CMYK etc.) to RGB for web/PDF safety.
+        if pix.colorspace and pix.colorspace.name not in ("DeviceRGB", "DeviceGray"):
+            pix = fitz.Pixmap(fitz.csRGB, pix)
+        while max(pix.width, pix.height) > MAX_LOGO_DIMENSION and (
+            pix.width > 1 and pix.height > 1
+        ):
+            pix.shrink(1)
+        png = pix.tobytes("png")
+    except Exception:
+        return None
+    if not png or len(png) > brandmod.MAX_LOGO_DECODED_BYTES:
+        return None
+    return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+
+
+@app.post("/api/branding/logo")
+async def upload_brand_logo(request: Request, authorization: Optional[str] = Header(None)):
+    """Upload a company logo for ebook branding. Auth required.
+
+    Accepts raw image bytes (application/octet-stream) instead of multipart so
+    no extra dependency is needed on the server or client. Validation is
+    defense in depth: magic-byte sniffing (declared MIME is never trusted),
+    a hard size cap, and full re-encoding through PyMuPDF — only clean raster
+    pixels survive into the stored PNG data URL. The logo lives inside the
+    book's branding JSON in Neon; nothing touches Render's ephemeral disk.
+    """
+    _require_user(authorization)
+    data = await request.body()
+    if not data:
+        raise HTTPException(
+            status_code=400,
+            detail="No logo file received. Choose a PNG, JPEG, or WebP image and try again.",
+        )
+    if len(data) > MAX_LOGO_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail="That logo file is too large. Please use an image under 10MB.",
+        )
+    kind = _sniff_image_kind(data)
+    if not kind:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported logo format. Please upload a PNG, JPEG, or WebP image.",
+        )
+    normalized = _normalize_logo(data)
+    if not normalized:
+        raise HTTPException(
+            status_code=400,
+            detail="That image could not be processed as a logo. Try a different file.",
+        )
+    return {"logo_data": normalized}
 
 
 
@@ -692,6 +780,8 @@ class EditSectionRequest(BaseModel):
     action: str
     instruction: Optional[str] = None
     language: str = "en"
+    # Authenticated owner id; required to mutate a stored ebook that has one.
+    user_id: Optional[str] = None
 
 
 class TranslateRequest(BaseModel):
@@ -1525,9 +1615,19 @@ def translate_book(request: TranslateRequest):
     if request.language != "bn":
         raise HTTPException(status_code=400, detail="Only translation into Bengali is supported")
     try:
+        # Branding is application-controlled identity data, never story content:
+        # strip it before the model sees the book and re-attach verbatim after,
+        # so Gemini can neither rewrite nor hallucinate brand fields.
+        source_book = request.book
+        preserved_branding = source_book.get("branding") if isinstance(source_book, dict) else None
+        payload = dict(source_book) if isinstance(source_book, dict) else source_book
+        if isinstance(payload, dict):
+            payload.pop("branding", None)
         translated = translate_book_structure(
-            request.book, request.language, request.template_id, request.target_pages
+            payload, request.language, request.template_id, request.target_pages
         )
+        if isinstance(translated, dict) and preserved_branding is not None:
+            translated["branding"] = preserved_branding
         return {
             "book": translated,
             "language": request.language,
@@ -1603,10 +1703,21 @@ def edit_section(request: EditSectionRequest):
         )
 
     # Resolve the authoritative book: DB when configured, else the client payload.
+    # Ownership is enforced whenever the stored row belongs to a user — branding
+    # and AI edits both mutate the stored book, so a stranger must never be able
+    # to rewrite someone else's ebook by guessing its id.
     book = None
     if request.ebook_id and db.is_configured():
         entry = db.get_ebook(request.ebook_id)
         if entry and isinstance(entry.get("book"), dict):
+            owner_id = entry.get("user_id")
+            if owner_id:
+                if not request.user_id:
+                    raise HTTPException(
+                        status_code=401, detail="Sign in to edit this ebook."
+                    )
+                if request.user_id != owner_id:
+                    raise HTTPException(status_code=403, detail="Access denied")
             book = entry["book"]
     if book is None:
         if not isinstance(request.book, dict):
@@ -1712,11 +1823,34 @@ def download_pdf(request: DownloadRequest):
             )
         try:
             template = _load_template(request.template_id)
+            # Branding: validated application-controlled metadata; None when
+            # absent/disabled so every downstream path stays untouched.
+            branding = brandmod.sanitize_branding(book_payload.get("branding"))
+            bengali = bookmod._needs_bengali_font(book_payload)
+            header_html, footer_html = bookmod.brand_pdf_templates(branding, bengali=bengali)
+
             entries = bookmod.book_entries(book_payload)
+            # The render-only About-the-Company section gets a real TOC entry,
+            # bookmark, and discovered page number like any other section.
+            about_sec = bookmod._about_company_section(branding)
+            if about_sec:
+                entries.append((f"sec-{len(entries) + 1}", about_sec["title"]))
+
             document = bookmod.render_book_document(
                 book_payload, template, page_map=None, cover_image=request.cover_image
             )
-            pdf_path = compile_document_to_pdf(document, entries, template=template)
+            pdf_path = compile_document_to_pdf(
+                document,
+                entries,
+                template=template,
+                header_html=header_html,
+                footer_html=footer_html,
+            )
+            # A full-bleed custom cover must not have footer text stamped over
+            # it — remove the whole footer band from page 1 only (the cover),
+            # leaving images untouched.
+            if request.cover_image:
+                pipelinemod.strip_footer_from_first_page(pdf_path)
             # Cleanup temp image files
             bookmod.cleanup_tmp_images(book_payload)
             db.log_event(

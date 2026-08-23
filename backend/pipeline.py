@@ -1091,6 +1091,8 @@ async def render_pdf(
     document: str = None,
     template: dict = None,
     browser=None,
+    header_html: str = None,
+    footer_html: str = None,
 ) -> str:
     """Render the final styled PDF. Returns output path.
 
@@ -1099,6 +1101,12 @@ async def render_pdf(
     document from markdown+theme. When `template` is provided, mermaid
     diagrams are themed from that template's palette (colors, fonts) instead
     of a hardcoded default.
+
+    `header_html`/`footer_html` are Chromium print header/footer templates.
+    Explicit templates are always passed: without them Chromium injects its
+    ugly defaults (date, document title, "about:blank") into every margin.
+    The default footer is a bare centered page number — matching what the CSS
+    @bottom-center rule always intended.
 
     If `browser` is given, it is reused instead of launching a new Chromium
     instance. The caller remains responsible for closing it.
@@ -1390,6 +1398,10 @@ async def render_pdf(
             print_background=True,
             prefer_css_page_size=True,
             display_header_footer=True,
+            header_template=header_html or "<span></span>",
+            footer_template=footer_html
+            or '<div style="width:100%;text-align:center;font-size:9px;color:#94a3b8;">'
+            '<span class="pageNumber"></span></div>',
         )
     finally:
         if owns_browser:
@@ -1603,17 +1615,39 @@ flag = True and (3.14 <= 7)
     return failures
 
 
-def compile_document_to_pdf(document: str, entries, template: dict = None) -> str:
+def compile_document_to_pdf(
+    document: str,
+    entries,
+    template: dict = None,
+    header_html: str = None,
+    footer_html: str = None,
+) -> str:
     """Render a fully-assembled HTML document to PDF with working TOC links.
 
     Renders the PDF once, then discovers the actual page numbers for each
     section by searching the rendered text, and finally adds PDF bookmarks
     plus clickable TOC links that point to the correct pages.
+
+    `header_html`/`footer_html` are Chromium print header/footer templates
+    (see render_pdf). When `strip_first_page_footer_needle` matches, the brand
+    footer is removed from page 1 only — used when a full-bleed custom cover
+    image would otherwise have footer text stamped over it.
     """
     workdir = pdf_workdir()
     out_path = os.path.join(workdir, f"ebook-{uuid.uuid4().hex[:8]}.pdf")
 
-    _run_coro(render_pdf("", "Modern Tech Blog", out_path, page_map=None, document=document, template=template))
+    _run_coro(
+        render_pdf(
+            "",
+            "Modern Tech Blog",
+            out_path,
+            page_map=None,
+            document=document,
+            template=template,
+            header_html=header_html,
+            footer_html=footer_html,
+        )
+    )
 
     # Discover actual section page numbers from the rendered PDF text.
     page_map: Dict[str, int] = {}
@@ -1629,6 +1663,49 @@ def compile_document_to_pdf(document: str, entries, template: dict = None) -> st
         print(f"POSTPROCESS_SKIP: {e}")
 
     return out_path
+
+
+def strip_footer_from_first_page(pdf_path: str, needle: str = None) -> None:
+    """Remove footer text from page 1 only, in place.
+
+    Chromium print headers/footers repeat on EVERY page — including a full-bleed
+    cover-image page where stamped text looks broken. Page 1 is always the
+    cover, so this redacts the footer band (bottom ~10mm): the brand line when
+    `needle` matches it, plus any leftover footer fragments like the page
+    number. Images are untouched (PDF_REDACT_IMAGE_NONE), so the cover photo
+    keeps every pixel. Best effort: failures are logged, never fatal.
+    """
+    try:
+        import fitz
+
+        mm = 72 / 25.4
+        with fitz.open(pdf_path) as doc:
+            if doc.page_count < 2:
+                return
+            page = doc[0]
+            w, h = page.rect.width, page.rect.height
+            band = fitz.Rect(0, h - 12 * mm, w, h - 1 * mm)
+
+            rects = []
+            if needle:
+                rects = [
+                    r for r in page.search_for(needle) if r.intersects(band)
+                ]
+            if not rects:
+                # Whole-band fallback: redact every text fragment in the strip.
+                rects = [
+                    fitz.Rect(x0, y0, x1, y1)
+                    for x0, y0, x1, y1, *_ in page.get_text("words")
+                    if fitz.Rect(x0, y0, x1, y1).intersects(band)
+                ]
+            if not rects:
+                return
+            for r in rects:
+                page.add_redact_annot(fitz.Rect(r.x0 - 4, r.y0 - 2, r.x1 + 4, r.y1 + 2))
+            page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
+            doc.saveIncr()
+    except Exception as e:
+        print(f"FOOTER_STRIP_SKIP: {e}")
 
 
 def count_document_pages(document: str, template: dict = None) -> int:

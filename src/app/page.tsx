@@ -6,6 +6,7 @@ import CoverGenerator from "@/components/CoverGenerator";
 import DownloadProgressModal from "@/components/DownloadProgressModal";
 import GenerateProgressModal from "@/components/GenerateProgressModal";
 import BookEditor from "@/components/BookEditor";
+import BrandingPanel, { EMPTY_BRANDING } from "@/components/BrandingPanel";
 import AuthModal from "@/components/AuthModal";
 import { useAuth } from "@/lib/auth";
 import {
@@ -18,6 +19,7 @@ import {
   deleteLibraryItem,
   type TemplateInfo,
   type Book,
+  type EbookBranding,
   type EbookLanguage,
   type LibraryItem,
 } from "@/lib/api";
@@ -71,6 +73,7 @@ export default function Home() {
   const [showCoverModal, setShowCoverModal] = useState(false);
   // Selected client-side cover (PNG data URL) embedded as PDF page 1.
   const [selectedCover, setSelectedCover] = useState<string | null>(null);
+  const [showBrandingModal, setShowBrandingModal] = useState(false);
 
   const refreshLibrary = useCallback(async () => {
     try {
@@ -197,6 +200,15 @@ export default function Home() {
     setShowCoverModal(false);
     setError(null);
   }, []);
+
+  // Branding lives INSIDE the book object, so previews, downloads and studio
+  // persistence pick it up automatically with no API changes.
+  const handleSaveBranding = useCallback(
+    (branding: EbookBranding) => {
+      setBook((prev) => (prev ? { ...prev, branding } : prev));
+    },
+    []
+  );
 
   const handleDownload = useCallback(async () => {
     if (!book) return;
@@ -686,6 +698,19 @@ export default function Home() {
                   {selectedCover ? "Change Cover" : "Choose Cover"}
                 </button>
                 <button
+                  onClick={() => setShowBrandingModal(true)}
+                  className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors ${
+                    book.branding?.enabled
+                      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
+                      : "border-card-border bg-background text-foreground hover:bg-accent/10 hover:text-accent"
+                  }`}
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                  </svg>
+                  {book.branding?.enabled ? "Branding On" : "Brand Your Ebook"}
+                </button>
+                <button
                   onClick={handleDownload}
                   disabled={isDownloading}
                   className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 transition-all hover:from-blue-500 hover:to-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
@@ -713,6 +738,7 @@ export default function Home() {
               templateId={book.template_id}
               language={language}
               coverImage={selectedCover}
+              userId={user?.id ?? null}
               onBookChange={handleBookChange}
             />
 
@@ -750,6 +776,13 @@ export default function Home() {
           template={templates.find((t) => t.id === book.template_id) ?? null}
           onClose={() => setShowCoverModal(false)}
           onSelect={handleSelectCover}
+        />
+      )}
+      {showBrandingModal && book && (
+        <BrandingPanel
+          branding={book.branding ?? EMPTY_BRANDING}
+          onSave={handleSaveBranding}
+          onClose={() => setShowBrandingModal(false)}
         />
       )}
       <DownloadProgressModal

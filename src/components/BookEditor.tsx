@@ -16,6 +16,7 @@ interface BookEditorProps {
   templateId: string;
   language: EbookLanguage;
   coverImage?: string | null;
+  userId?: string | null;
   onBookChange: (book: Book) => void;
 }
 
@@ -55,6 +56,7 @@ export default function BookEditor({
   templateId,
   language,
   coverImage,
+  userId,
   onBookChange,
 }: BookEditorProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -101,6 +103,7 @@ export default function BookEditor({
           action,
           instruction: effectiveInstruction,
           language,
+          userId: userId ?? null,
         });
         undoRef.current = book;
         setCanUndo(true);
@@ -112,7 +115,7 @@ export default function BookEditor({
         setEditingAction(null);
       }
     },
-    [isEditing, ebookId, book, selectedIndex, language, onBookChange, instruction]
+    [isEditing, ebookId, book, selectedIndex, language, userId, onBookChange, instruction]
   );
 
   const handleUndo = useCallback(() => {
