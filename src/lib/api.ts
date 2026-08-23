@@ -357,7 +357,6 @@ export async function editSection(payload: {
   action: EditAction;
   instruction?: string;
   language?: "en" | "bn";
-  userId?: string | null;
 }): Promise<EditSectionResponse> {
   const res = await fetch(`${API_BASE}/api/edit-section`, {
     method: "POST",
@@ -369,7 +368,6 @@ export async function editSection(payload: {
       action: payload.action,
       instruction: payload.instruction ?? null,
       language: payload.language ?? "en",
-      user_id: payload.userId ?? null,
     }),
   });
   if (!res.ok) {
@@ -402,4 +400,24 @@ export async function uploadBrandLogo(file: Blob): Promise<string> {
   }
   const data = await res.json();
   return data.logo_data as string;
+}
+
+/**
+ * Persist branding config server-side (owner-only) so it survives the browser.
+ * Pass null to remove branding from a stored ebook entirely. Best-effort: the
+ * studio still works offline via localStorage when this fails.
+ */
+export async function saveEbookBranding(
+  ebookId: string,
+  branding: EbookBranding | null
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/library/${encodeURIComponent(ebookId)}/branding`, {
+    method: "POST",
+    headers: _authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ branding }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Save failed" }));
+    throw new Error(err.detail || "Failed to save branding");
+  }
 }

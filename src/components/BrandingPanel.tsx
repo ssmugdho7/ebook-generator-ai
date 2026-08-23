@@ -2,10 +2,14 @@
 
 import { useRef, useState } from "react";
 import LoadingSpinner from "@/components/LoadingSpinner";
-import { uploadBrandLogo, type EbookBranding } from "@/lib/api";
+import { uploadBrandLogo, type EbookBranding, type TemplateInfo } from "@/lib/api";
 
 interface BrandingPanelProps {
   branding: EbookBranding;
+  /** Selected ebook template — the preview uses its palette (same visual language). */
+  template?: TemplateInfo | null;
+  bookTitle: string;
+  bookSubtitle?: string;
   onSave: (branding: EbookBranding) => void;
   onClose: () => void;
 }
@@ -32,6 +36,15 @@ function normalizeHex(value: string): string | null {
   if (!v) return null;
   const withHash = v.startsWith("#") ? v : `#${v}`;
   return HEX_RE.test(withHash) ? withHash.toLowerCase() : null;
+}
+
+function isDark(hex: string): boolean {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return false;
+  const n = parseInt(m[1], 16);
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  // Relative luminance approximation (perceived brightness).
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 < 0.5;
 }
 
 /** Client-side resize so uploads stay small; the server re-validates anyway. */
@@ -77,7 +90,14 @@ function Field({
 const inputCls =
   "w-full rounded-lg border border-card-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-text-muted focus:border-accent focus:outline-none";
 
-export default function BrandingPanel({ branding, onSave, onClose }: BrandingPanelProps) {
+export default function BrandingPanel({
+  branding,
+  template,
+  bookTitle,
+  bookSubtitle,
+  onSave,
+  onClose,
+}: BrandingPanelProps) {
   const [draft, setDraft] = useState<EbookBranding>({ ...EMPTY_BRANDING, ...branding });
   const [uploading, setUploading] = useState(false);
   const [logoError, setLogoError] = useState<string | null>(null);
@@ -118,11 +138,18 @@ export default function BrandingPanel({ branding, onSave, onClose }: BrandingPan
     onClose();
   };
 
-  const accent = normalizeHex(draft.primary_color || "") || "#2563eb";
+  const accent = normalizeHex(draft.primary_color || "") || template?.palette.accent || "#2563eb";
   const secondary =
     normalizeHex(draft.secondary_color || "") ||
     normalizeHex(draft.primary_color || "") ||
     "#64748b";
+  // Preview uses the selected template's palette so it matches the final PDF.
+  const pal = template?.palette;
+  const coverBg = pal?.title_page_bg || pal?.page_bg || "#ffffff";
+  const headingColor = pal?.heading || "#111827";
+  const mutedColor = pal?.muted || "#6b7280";
+  const isDarkCover = isDark(coverBg);
+  const footerRule = isDarkCover ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.08)";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -356,46 +383,68 @@ export default function BrandingPanel({ branding, onSave, onClose }: BrandingPan
             </div>
           </div>
 
-          {/* Live preview card */}
+          {/* Live preview card — same visual language as the ebook template */}
           <div className="space-y-4">
             <div
-              className="overflow-hidden rounded-xl border border-card-border"
-              style={{ background: "#ffffff" }}
+              className="overflow-hidden rounded-xl border border-card-border shadow-sm"
+              style={{ background: coverBg }}
             >
-              <div className="px-6 py-8 text-center" style={{ background: "#ffffff" }}>
+              <div className="flex min-h-[300px] flex-col items-center px-6 pb-4 pt-10 text-center">
                 {draft.logo_data ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={draft.logo_data} alt="" className="mx-auto mb-4 max-h-16 object-contain" />
+                  <img src={draft.logo_data} alt="" className="mb-5 max-h-16 object-contain" />
                 ) : null}
                 {draft.company_name && (
                   <div
                     className="mb-3 text-[11px] font-semibold uppercase tracking-[0.3em]"
                     style={{ color: secondary }}
                   >
-                    {draft.company_name || "Company"}
+                    {draft.company_name}
                   </div>
                 )}
-                <hr className="mx-auto mb-4 w-14 border-0" style={{ height: 2, background: accent }} />
-                <div className="text-lg font-bold leading-snug text-neutral-900">
-                  {draft.tagline || "Your ebook title appears here"}
+                <hr className="mx-auto mb-5 w-14 border-0" style={{ height: 2, background: accent }} />
+                <div
+                  className="text-xl font-bold leading-snug"
+                  style={{ color: headingColor }}
+                >
+                  {bookTitle || "Your ebook title"}
                 </div>
+                {(bookSubtitle || draft.tagline) && (
+                  <div className="mt-2 text-[13px]" style={{ color: mutedColor }}>
+                    {bookSubtitle}
+                  </div>
+                )}
+                {draft.tagline && (
+                  <div className="mt-3 text-[13px] italic" style={{ color: secondary }}>
+                    “{draft.tagline}”
+                  </div>
+                )}
+                <div className="flex-1" />
                 {(draft.website || draft.copyright_text) && (
-                  <div className="mt-6 text-[11px] text-neutral-500">
+                  <div className="mt-8 text-[11px]" style={{ color: mutedColor }}>
                     {[draft.website, draft.copyright_text].filter(Boolean).join(" · ")}
                   </div>
                 )}
               </div>
-              <div className="flex items-center justify-between border-t border-neutral-200 px-4 py-2 text-[10px]" style={{ color: secondary }}>
+              {/* Footer strip preview */}
+              <div
+                className="flex items-center justify-between gap-3 px-4 py-2 text-[10px]"
+                style={{
+                  borderTop: `1px solid ${footerRule}`,
+                  color: mutedColor,
+                  fontFamily: draft.company_name.match(/[\u0980-\u09FF]/) ? "'Noto Sans Bengali', sans-serif" : undefined,
+                }}
+              >
                 <span className="truncate">
                   {draft.footer_text ||
                     [draft.company_name, draft.website].filter(Boolean).join(" | ") ||
                     "Footer preview"}
                 </span>
-                <span>123</span>
+                <span>12</span>
               </div>
             </div>
             <p className="text-center text-xs text-text-muted">
-              Preview of the branded cover and per-page footer
+              Preview on the “{template?.label ?? "selected"}” template · cover + per-page footer
             </p>
             <button
               onClick={handleSave}

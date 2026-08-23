@@ -476,7 +476,7 @@ def get_ebook(ebook_id: str) -> Optional[Dict[str, Any]]:
                 cur.execute(
                     """
                     SELECT id, title, subtitle, template_id, target_pages,
-                           page_count, book, book_bn, created_at
+                           page_count, book, book_bn, created_at, user_id
                     FROM ebooks WHERE id = %s
                     """,
                     (ebook_id,),
@@ -500,6 +500,8 @@ def get_ebook(ebook_id: str) -> Optional[Dict[str, Any]]:
             "book": book,
             "book_bn": book_bn,
             "created_at": row[8].isoformat() if row[8] else None,
+            # Owner identity: every ownership check depends on this being present.
+            "user_id": str(row[9]) if row[9] is not None else None,
         }
     except Exception as e:
         print(f"DB_GET_FAILED {type(e).__name__}: {e}")

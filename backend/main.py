@@ -780,8 +780,6 @@ class EditSectionRequest(BaseModel):
     action: str
     instruction: Optional[str] = None
     language: str = "en"
-    # Authenticated owner id; required to mutate a stored ebook that has one.
-    user_id: Optional[str] = None
 
 
 class TranslateRequest(BaseModel):
@@ -1687,7 +1685,7 @@ def _gemini_edit_call(system_prompt: str, user_text: str) -> str:
 
 
 @app.post("/api/edit-section")
-def edit_section(request: EditSectionRequest):
+def edit_section(request: EditSectionRequest, authorization: Optional[str] = Header(None)):
     """AI-edit a SINGLE section of an existing book and persist the result.
 
     Only the targeted section is sent to Gemini; every other section is kept
@@ -1703,20 +1701,18 @@ def edit_section(request: EditSectionRequest):
         )
 
     # Resolve the authoritative book: DB when configured, else the client payload.
-    # Ownership is enforced whenever the stored row belongs to a user — branding
-    # and AI edits both mutate the stored book, so a stranger must never be able
-    # to rewrite someone else's ebook by guessing its id.
+    # Ownership is enforced whenever the stored row belongs to a user. Identity
+    # comes from the verified JWT — never from a client-asserted body field.
     book = None
     if request.ebook_id and db.is_configured():
         entry = db.get_ebook(request.ebook_id)
         if entry and isinstance(entry.get("book"), dict):
             owner_id = entry.get("user_id")
             if owner_id:
-                if not request.user_id:
-                    raise HTTPException(
-                        status_code=401, detail="Sign in to edit this ebook."
-                    )
-                if request.user_id != owner_id:
+                user = _get_current_user(authorization)
+                if not user:
+                    raise HTTPException(status_code=401, detail="Sign in to edit this ebook.")
+                if user["id"] != owner_id:
                     raise HTTPException(status_code=403, detail="Access denied")
             book = entry["book"]
     if book is None:
@@ -1948,6 +1944,60 @@ def library_item(ebook_id: str, authorization: Optional[str] = Header(None)):
     if owner_id and owner_id != user["id"]:
         raise HTTPException(status_code=403, detail="Access denied")
     return entry
+
+
+class BrandingPayload(BaseModel):
+    branding: Optional[dict] = None
+
+
+@app.post("/api/library/{ebook_id}/branding")
+def set_ebook_branding(ebook_id: str, payload: BrandingPayload, authorization: Optional[str] = Header(None)):
+    """Persist branding config into the stored book JSON.
+
+    Branding normally rides inside the client's book object; this endpoint makes
+    it survive the browser — reopen the ebook from the Library later and the
+    branding is still there. Only the owner can set it. Passing null/empty
+    branding removes it entirely.
+    """
+    user = _require_user(authorization)
+    if not db.is_configured():
+        raise HTTPException(status_code=503, detail="Library storage is not configured")
+    entry = db.get_ebook(ebook_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Ebook not found")
+    owner_id = entry.get("user_id")
+    if owner_id and owner_id != user["id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    book = entry.get("book")
+    if not isinstance(book, dict):
+        raise HTTPException(status_code=409, detail="Stored ebook has no editable book data")
+
+    branding = brandmod.sanitize_branding(payload.branding)
+    if branding is None:
+        book.pop("branding", None)  # disabled/empty -> fully remove
+    else:
+        book["branding"] = branding
+
+    try:
+        pages = bookmod.estimate_pages(book)
+        db.update_ebook_book(
+            ebook_id,
+            book,
+            page_count=pages,
+            section_count=len(book.get("sections", [])),
+        )
+    except Exception as e:
+        print(f"DB_UPDATE_BRANDING_FAILED {type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail="Unable to save branding. Please try again.")
+
+    db.log_event(
+        "set-branding",
+        "ok",
+        ebook_id=ebook_id,
+        detail=f"enabled={bool(branding)} about={bool(branding and branding.get('about_enabled'))}",
+    )
+    return {"ok": True, "branding": branding}
 
 
 @app.get("/api/library/{ebook_id}/pdf")

@@ -17,6 +17,7 @@ import {
   getLibraryBook,
   downloadStoredPdf,
   deleteLibraryItem,
+  saveEbookBranding,
   type TemplateInfo,
   type Book,
   type EbookBranding,
@@ -202,12 +203,21 @@ export default function Home() {
   }, []);
 
   // Branding lives INSIDE the book object, so previews, downloads and studio
-  // persistence pick it up automatically with no API changes.
+  // persistence pick it up automatically with no API changes. When the ebook
+  // is stored in the library we also persist server-side (best-effort) so
+  // branding survives closing the browser.
   const handleSaveBranding = useCallback(
     (branding: EbookBranding) => {
       setBook((prev) => (prev ? { ...prev, branding } : prev));
+      if (ebookId) {
+        const empty =
+          !branding.enabled || (!branding.company_name.trim() && !branding.logo_data);
+        saveEbookBranding(ebookId, empty ? null : branding).catch(() => {
+          /* non-fatal: studio keeps working from localStorage */
+        });
+      }
     },
-    []
+    [ebookId]
   );
 
   const handleDownload = useCallback(async () => {
@@ -738,7 +748,6 @@ export default function Home() {
               templateId={book.template_id}
               language={language}
               coverImage={selectedCover}
-              userId={user?.id ?? null}
               onBookChange={handleBookChange}
             />
 
@@ -781,6 +790,9 @@ export default function Home() {
       {showBrandingModal && book && (
         <BrandingPanel
           branding={book.branding ?? EMPTY_BRANDING}
+          template={templates.find((t) => t.id === book.template_id) ?? null}
+          bookTitle={book.title}
+          bookSubtitle={book.subtitle || ""}
           onSave={handleSaveBranding}
           onClose={() => setShowBrandingModal(false)}
         />
