@@ -2,7 +2,8 @@
 
 Turn rough notes into a **story** your reader can't put down — then ship it as a
 print-ready PDF. Powered by Google Gemini, with live preview, WCAG-accessible
-covers, and a Neon-backed library of everything you've made.
+covers, full Bengali translation, white-label business branding, and a
+Neon-backed library of everything you've made.
 
 ![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi)
@@ -64,6 +65,47 @@ is validated and contrast-checked before it reaches the page.
 - **Never hard-fails** — malformed JSON falls back to the markdown pipeline;
   a missing key returns an actionable 503, not a stack trace
 
+### User Accounts & Quotas
+
+- **Email + password accounts** — register, login, and session endpoints backed
+  by JWT tokens (bcrypt-style hashing, configurable secret)
+- **Daily generation quota** — per-user daily ebook limit (default: 5) enforced
+  server-side with friendly reset messaging
+- **Ownership enforcement** — every library read/edit/delete/branding operation
+  is verified against the authenticated owner; identity always comes from the
+  signed JWT, never client-supplied fields
+
+### Bengali Translation
+
+- **One-click full-book translation** — English → বাংলা while preserving the
+  entire outline structure (sections, blocks, callouts, tables)
+- **Bengali typography** — Noto Sans Bengali embedded for HTML preview,
+  PDF body text, and even branded PDF footers
+- **AI edits in Bengali** — Book Studio actions work against the translated book
+  without touching the English original
+
+### Business Branding (White-Label Ebooks)
+
+Turn any generated ebook into your company's own document:
+
+- **Company logo** — upload any PNG/JPEG/WebP; sanitized, re-encoded to ≤512px
+  PNG, and shown on the cover, footer band, and About page
+- **Branded cover page** — dedicated title page with logo, company name,
+  tagline, website, and contact line in your brand colors
+- **Footers on every page** — Chromium-native header/footer templates carrying
+  company info and page numbers; automatically suppressed on image covers
+  (redaction preserves the artwork) and rendered in Bengali when needed
+- **Brand color system** — primary/secondary hex colors re-tint covers, headings,
+  accents, and diagram strokes; contrast-guarded against each template palette
+- **About [Company] section** — auto-generated closing section (render-only,
+  never translated or AI-edited) that appears in the table of contents with a
+  real page number and bookmark
+- **Persistence** — branding saved into the stored book JSONB via an
+  owner-only endpoint; reopening an ebook from the library restores it
+- **Live preview** — the branding modal previews the cover card using your
+  book's active template palette before you commit
+- **Fully optional** — off by default; existing books are byte-for-byte unchanged
+
 ### Your Library (Neon Postgres)
 
 - **Every generation is saved** — outline JSON, title, template, page count
@@ -71,6 +113,8 @@ is validated and contrast-checked before it reaches the page.
 - **Instant re-download** — stored PDFs stream straight from Neon, no re-render
 - **Reopen any ebook** — load an old book back into the live preview
 - **Audit trail** — `generation_events` records duration, status, and failures
+- **Owner-scoped listings** — users see their own library; anonymous use still
+  works with no database
 - **Fully optional** — with no `DATABASE_URL` the app still generates ebooks
 
 
@@ -79,6 +123,8 @@ is validated and contrast-checked before it reaches the page.
 - **8 Cover Styles** — Bold Editorial, Illustrated, Badge+Grid, Dark Glow, Dark Mono, Dark Gradient, Dark Neon, Minimal Lux
 - **6 Size Presets** — Standard eBook, Amazon Kindle, Square (Social), A4 Portrait, Wide Banner, Booklet
 - **Smart Topic Detection** — 21 categories with auto-matched hero illustrations and topic icons
+- **Three image sources** — AI-generated hero images (Gemini image gen), Unsplash
+  stock photos, or your own uploaded cover art (embedded in the PDF as page one)
 - **WCAG Contrast Checking** — Real-time accessibility validation for all text/background combinations
 - **Punch Word Highlighting** — Automatic keyword extraction and accent color emphasis
 - **Brand Icon Integration** — 60+ tech brand icons (React, Python, Docker, etc.) + 80+ lucide line icons
@@ -88,6 +134,8 @@ is validated and contrast-checked before it reaches the page.
 
 - **Two-Pass PDF Rendering** — First pass discovers pagination, second pass adds accurate page numbers
 - **PDF Outline & Bookmarks** — Clickable table of contents with internal links
+- **Clean headers/footers** — explicit Chromium templates (bare page number by
+  default) so no browser junk (dates, URLs) ever leaks onto pages
 - **Syntax Highlighting** — Pygments-based code highlighting with 25+ token types
 - **Mermaid Diagrams** — Auto-rendered flowcharts, sequence diagrams, and graphs with WCAG-safe colors
 - **Fallback Diagram System** — Broken mermaid blocks replaced with deterministic SVG box-and-arrow diagrams
@@ -136,12 +184,16 @@ Select any section and use AI to improve it without regenerating the whole book:
 | Custom | Type any instruction (e.g. "explain for a beginner") |
 
 Features: one-level undo, per-section targeting, Bengali support, malformed
-AI response handling (original preserved on failure).
+AI response handling (original preserved on failure). When a stored ebook is
+targeted, only its authenticated owner can edit it — and only that section is
+sent to Gemini, so the rest of the book never leaves the database unchanged
+state. Branding data is stripped before AI calls and re-attached after.
 
 ### Live Preview
 
 - **Real-Time HTML Preview** — See your ebook rendered with full styling before downloading
 - **Interactive Cover Generator** — Adjust style, accent word, tagline, and size with instant preview
+- **Branding preview** — branded cover card rendered with your template's palette inside the branding modal
 - **Dark/Light Mode** — Toggle between themes with persistent preference
 
 ### Testing & Quality
@@ -149,6 +201,9 @@ AI response handling (original preserved on failure).
 - **WCAG Contrast Verification** — Automated checks at every level: code tokens, body text, headings, covers, diagrams
 - **Visual Regression Testing** — Playwright browser-based code legibility checks
 - **PDF Quality Tests** — Automated validation of outline, links, page numbers, and content presence
+- **Branding & security test matrix** — injection/sanitization suite, logo magic-byte
+  validation, cross-user 401/403/ownership checks, E2E branded PDF probes across all
+  templates (text cover, image cover, Bengali footers, long names)
 - **Performance Monitoring** — All operations tracked with <30s target for PDF generation
 
 ---
@@ -180,11 +235,13 @@ ebook-writer/
 │   ├── app/              # Next.js pages (generator + library UI)
 │   ├── components/       # React UI components
 │   │   ├── CoverGenerator.tsx    # Cover design modal
-│   │   ├── LoadingSpinner.tsx    # Loading states
-│   │   ├── ThemeToggle.tsx       # Dark/light mode
+│   │   ├── BrandingPanel.tsx     # White-label branding modal + live preview
+│   │   ├── BookEditor.tsx        # Book Studio: AI section editing
+│   │   ├── AuthModal.tsx         # Sign in / create account
+│   │   ├── ThemePreview.tsx      # Template theme preview cards
 │   │   └── MarkdownPreview.tsx   # Markdown renderer
 │   └── lib/
-│       ├── api.ts        # Backend API client (+ library calls)
+│       ├── api.ts        # Backend API client (+ library, auth, branding calls)
 │       ├── covers.ts     # Cover generation engine
 │       └── generated-icons.ts  # Auto-generated icon data
 ├── backend/
@@ -192,7 +249,9 @@ ebook-writer/
 │   ├── .dockerignore     # Keeps the image lean
 │   ├── .env.example      # Backend env template
 │   ├── main.py           # FastAPI app, storyteller prompts, endpoints
-│   ├── db.py             # Neon persistence (library, PDFs, events)
+│   ├── auth.py           # JWT issuance/verification, password hashing
+│   ├── branding.py       # Branding sanitization/validation, footer builder
+│   ├── db.py             # Neon persistence (library, PDFs, events, quotas)
 │   ├── schema.sql        # Same schema, for manual provisioning
 │   ├── book.py           # Book model + HTML rendering + page estimation
 │   ├── pipeline.py       # PDF compilation pipeline (container-safe)
@@ -200,7 +259,8 @@ ebook-writer/
 │   ├── templates.py      # Template system
 │   ├── key_manager.py    # API key rotation
 │   ├── templates/        # JSON template definitions
-│   └── test_pdf_quality.py  # Quality test suite
+│   ├── test_pdf_quality.py  # Quality test suite
+│   └── test_image_gen.py    # AI cover image tests
 ├── scripts/
 │   ├── gen-icons.mjs     # Icon generation script
 │   └── verify-covers.mjs  # Cover verification suite
@@ -213,16 +273,22 @@ ebook-writer/
 
 | Method | Path | Purpose |
 |--------|------|---------|
+| `POST` | `/api/auth/register` | Create an account (email + password) |
+| `POST` | `/api/auth/login` | Sign in, receive a JWT session token |
+| `GET` | `/api/auth/me` | Current user from the bearer token |
 | `GET` | `/api/health` | Status: keys, database, CORS, page-verify mode |
 | `GET` | `/api/templates` | The four design templates |
-| `POST` | `/api/generate-book` | Notes → story outline (saved to Neon, returns `ebook_id`) |
+| `POST` | `/api/generate-book` | Notes → story outline (saved to Neon, returns `ebook_id`, quota-enforced) |
+| `POST` | `/api/translate-book` | Full English → Bengali translation of a book outline |
 | `POST` | `/api/preview` | Outline → styled HTML for the live preview |
-| `POST` | `/api/download-pdf` | Outline → PDF (stored against `ebook_id`) |
-| `POST` | `/api/edit-section` | AI-edit a single section (simplify, expand, improve, etc.) |
-| `GET` | `/api/library` | Recent ebooks |
-| `GET` | `/api/library/{id}` | One ebook, with its full outline |
-| `GET` | `/api/library/{id}/pdf` | Stored PDF, streamed from Postgres |
-| `DELETE` | `/api/library/{id}` | Remove an ebook and its PDF |
+| `POST` | `/api/edit-section` | AI-edit a single section (simplify, expand, improve, …; owner-guarded) |
+| `POST` | `/api/download-pdf` | Outline → PDF (stored against `ebook_id`; accepts branding + cover image) |
+| `POST` | `/api/branding/logo` | Upload/sanitize a company logo → normalized PNG data URL (auth required) |
+| `GET` | `/api/library` | Recent ebooks (owner-scoped when signed in) |
+| `GET` | `/api/library/{id}` | One ebook, with its full outline (owner-guarded) |
+| `POST` | `/api/library/{id}/branding` | Persist branding into the stored book; `null` payload removes it (owner-only) |
+| `GET` | `/api/library/{id}/pdf` | Stored PDF, streamed from Postgres (owner-guarded) |
+| `DELETE` | `/api/library/{id}` | Remove an ebook and its PDF (owner-guarded) |
 | `GET` | `/api/key-status` | Gemini key rotation state |
 
 ---
@@ -234,9 +300,12 @@ ebook-writer/
 GEMINI_API_KEYS=key1,key2,key3      # comma-separated → automatic rotation
 GEMINI_API_KEY=single-key           # optional fallback
 DATABASE_URL=postgresql://...neon.tech/neondb?sslmode=require   # optional
+JWT_SECRET=change-me                # session-token signing secret (auto-generated if unset)
 ALLOWED_ORIGINS=*                   # lock to your frontend in production
 PAGE_VERIFY=true                    # false = fast page estimate (low memory)
 PDF_OUTPUT_DIR=/tmp/ebook-writer    # scratch dir for intermediate PDFs
+ENABLE_IMAGE_GEN=true               # AI hero images for covers
+UNSPLASH_ACCESS_KEY=...             # optional: Unsplash stock-photo covers
 
 # --- Frontend (.env.local — see .env.example) ---
 NEXT_PUBLIC_API_URL=http://localhost:8000   # baked in at build time
