@@ -45,50 +45,34 @@ Include a diagram of the component lifecycle and progressive code examples.
 Tell it like a story a teacher would tell in class — one simple everyday world,
 a couple of characters, and a cliffhanger at the end of every section.`;
 
-type ModeStatus = "active" | "locked" | "idle";
-
-// When both presentation modes somehow end up active (e.g. restored storage),
-// branding wins and the plain cover is dropped — the branded edition renders
-// its own cover.
-function dropCoverIfBranded(b: Book | null, cover: string | null): string | null {
-  return b?.branding?.enabled ? null : cover;
-}
+type ModeStatus = "active" | "idle";
 
 /**
- * Premium mode card used for the Cover and Branding actions.
- * The two modes are mutually exclusive: activating one locks the other until
- * it is turned off, so a PDF always carries exactly one presentation layer.
+ * Premium mode card used for the Cover and Branding actions. The two combine
+ * freely; each card simply reflects whether its mode is currently active.
  */
 function ModeButton({
   icon,
   label,
   subtitle,
   status,
-  lockedReason,
   onClick,
 }: {
   icon: React.ReactNode;
   label: string;
   subtitle: string;
   status: ModeStatus;
-  lockedReason?: string;
   onClick: () => void;
 }) {
   const active = status === "active";
-  const locked = status === "locked";
   return (
     <button
       type="button"
       onClick={onClick}
-      disabled={locked}
-      aria-disabled={locked}
-      title={locked ? lockedReason : undefined}
       className={`group relative flex items-center gap-3 overflow-hidden rounded-2xl border px-4 py-2.5 text-left transition-all duration-200 ${
         active
           ? "border-emerald-400/50 bg-gradient-to-r from-emerald-500/10 via-teal-500/[0.07] to-transparent shadow-[0_10px_28px_-14px_rgba(16,185,129,0.6)]"
-          : locked
-            ? "cursor-not-allowed border-dashed border-card-border bg-black/[0.03] opacity-55 dark:bg-white/[0.03]"
-            : "border-card-border bg-background hover:-translate-y-0.5 hover:border-accent/60 hover:bg-accent/[0.04] hover:shadow-[0_12px_32px_-16px_rgba(99,102,241,0.5)]"
+          : "border-card-border bg-background hover:-translate-y-0.5 hover:border-accent/60 hover:bg-accent/[0.04] hover:shadow-[0_12px_32px_-16px_rgba(99,102,241,0.5)]"
       }`}
     >
       {/* Icon chip */}
@@ -96,18 +80,10 @@ function ModeButton({
         className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl transition-colors ${
           active
             ? "bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-inner"
-            : locked
-              ? "bg-card-border/40 text-text-muted"
-              : "bg-accent/10 text-accent group-hover:from-accent group-hover:to-violet-500 group-hover:text-white"
+            : "bg-accent/10 text-accent group-hover:from-accent group-hover:to-violet-500 group-hover:text-white"
         }`}
       >
-        {locked ? (
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-          </svg>
-        ) : (
-          icon
-        )}
+        {icon}
       </span>
 
       {/* Label + status */}
@@ -115,7 +91,7 @@ function ModeButton({
         <span className="flex items-center gap-2">
           <span
             className={`text-sm font-semibold tracking-tight ${
-              active ? "text-emerald-500 dark:text-emerald-400" : locked ? "text-text-muted" : "text-foreground"
+              active ? "text-emerald-500 dark:text-emerald-400" : "text-foreground"
             }`}
           >
             {label}
@@ -126,11 +102,6 @@ function ModeButton({
               Active
             </span>
           )}
-          {locked && (
-            <span className="rounded-full border border-card-border px-1.5 py-px text-[10px] font-bold uppercase tracking-wider text-text-muted">
-              Locked
-            </span>
-          )}
         </span>
         <span className="mt-0.5 block truncate text-[11px] leading-tight text-text-muted">
           {subtitle}
@@ -138,7 +109,7 @@ function ModeButton({
       </span>
 
       {/* Hover affordance */}
-      {!locked && !active && (
+      {!active && (
         <svg
           className="ml-1 hidden h-4 w-4 shrink-0 text-text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-accent sm:block"
           fill="none"
@@ -229,8 +200,7 @@ export default function Home() {
         setEbookId(s.ebook_id ?? null);
         setTemplateId(s.template_id || "minimal-light");
         setLanguage(s.language === "bn" ? "bn" : "en");
-        // Mutual exclusion on restore: branding beats a plain custom cover.
-        setSelectedCover(dropCoverIfBranded(s.book, s.cover_image ?? null));
+        setSelectedCover(s.cover_image ?? null);
       }
     } catch {
       /* ignore corrupt storage */
@@ -258,9 +228,10 @@ export default function Home() {
 
   const selectedTemplate = templates.find((t) => t.id === templateId);
 
-  // ---- Cover vs branding mutual exclusion + download gate ----
-  // Exactly one presentation layer may be active: a custom cover OR business
-  // branding. Activating one locks the other; a PDF needs at least one.
+  // ---- Presentation modes + download gate ----
+  // Custom cover and business branding COMBINE freely (branded cover page +
+  // custom artwork, or any mix). The only rule: at least one must be active
+  // before a PDF can be downloaded.
   const brandingActive = !!book?.branding?.enabled;
   const coverActive = !!selectedCover;
   const canDownload = brandingActive || coverActive;
@@ -324,7 +295,6 @@ export default function Home() {
   const handleSaveBranding = useCallback(
     (branding: EbookBranding) => {
       setBook((prev) => (prev ? { ...prev, branding } : prev));
-      if (branding.enabled) setSelectedCover(null); // modes are mutually exclusive
       if (ebookId) {
         const empty =
           !branding.enabled || (!branding.company_name.trim() && !branding.logo_data);
@@ -820,8 +790,8 @@ export default function Home() {
                   Start Over
                 </button>
 
-                {/* Presentation modes: custom cover vs business branding —
-                    mutually exclusive, one must be active to download. */}
+                {/* Presentation modes: custom cover + business branding combine
+                    freely; at least one must be active to download. */}
                 <div className="flex items-center gap-1">
                   <ModeButton
                     icon={
@@ -831,17 +801,16 @@ export default function Home() {
                     }
                     label={coverActive ? "Change Cover" : "Custom Cover"}
                     subtitle={
-                      brandingActive
-                        ? "Turn off branding to unlock"
-                        : coverActive
-                          ? "Active · tap to swap the artwork"
-                          : "Design your own PDF cover"
+                      coverActive
+                        ? brandingActive
+                          ? "Active · combined with branding"
+                          : "Active · tap to swap the artwork"
+                        : "Design your own PDF cover"
                     }
-                    status={brandingActive ? "locked" : coverActive ? "active" : "idle"}
-                    lockedReason="Custom covers are locked while business branding is on."
+                    status={coverActive ? "active" : "idle"}
                     onClick={() => setShowCoverModal(true)}
                   />
-                  {coverActive && !brandingActive && (
+                  {coverActive && (
                     <button
                       type="button"
                       onClick={() => setSelectedCover(null)}
@@ -858,37 +827,18 @@ export default function Home() {
                 <ModeButton
                   icon={
                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                  }
-                  label={coverActive ? "Change Cover" : "Custom Cover"}
-                  subtitle={
-                    brandingActive
-                      ? "Turn off branding to unlock"
-                      : coverActive
-                        ? "Active · tap to swap the artwork"
-                        : "Design your own PDF cover"
-                  }
-                  status={brandingActive ? "locked" : coverActive ? "active" : "idle"}
-                  lockedReason="Custom covers are locked while business branding is on."
-                  onClick={() => setShowCoverModal(true)}
-                />
-                <ModeButton
-                  icon={
-                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                     </svg>
                   }
                   label="Business Branding"
                   subtitle={
-                    coverActive
-                      ? "Remove your custom cover to unlock"
-                      : brandingActive
-                        ? "Active · white-label edition"
-                        : "White-label it with your logo & colors"
+                    brandingActive
+                      ? coverActive
+                        ? "Active · combined with custom cover"
+                        : "Active · white-label edition"
+                      : "White-label it with your logo & colors"
                   }
-                  status={coverActive ? "locked" : brandingActive ? "active" : "idle"}
-                  lockedReason="Branding is locked while a custom cover is set — remove it first."
+                  status={brandingActive ? "active" : "idle"}
                   onClick={() => setShowBrandingModal(true)}
                 />
 

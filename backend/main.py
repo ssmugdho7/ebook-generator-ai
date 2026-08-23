@@ -1715,6 +1715,19 @@ def edit_section(request: EditSectionRequest, authorization: Optional[str] = Hea
                 if user["id"] != owner_id:
                     raise HTTPException(status_code=403, detail="Access denied")
             book = entry["book"]
+            # Branding overlay: the client's live view wins for this
+            # application-controlled field. Branding persistence is best-effort
+            # (owner-only endpoint), so the stored copy may lag behind what the
+            # user sees — e.g. a guest who branded locally would otherwise lose
+            # their logo on the very next AI edit. A client that omits the key
+            # entirely (never touched branding) leaves the stored value alone,
+            # and the overlay also heals the stored book on persist below.
+            if isinstance(request.book, dict) and "branding" in request.book:
+                client_branding = request.book.get("branding")
+                if isinstance(client_branding, dict):
+                    book["branding"] = client_branding
+                else:
+                    book.pop("branding", None)
     if book is None:
         if not isinstance(request.book, dict):
             raise HTTPException(
