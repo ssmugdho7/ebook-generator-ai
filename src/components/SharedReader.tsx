@@ -233,13 +233,23 @@ export default function SharedReader({ token }: { token: string }) {
         </div>
 
         {data.has_pdf && (
-          <button
-            onClick={handleDownload}
-            disabled={downloading}
-            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 transition-all hover:from-blue-500 hover:to-violet-500 disabled:opacity-50 sm:hidden"
-          >
-            {downloading ? <LoadingSpinner size="sm" /> : "Download PDF"}
-          </button>
+          <div className="mt-6 flex flex-col items-center gap-3">
+            <button
+              onClick={handleDownload}
+              disabled={downloading}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 transition-all hover:from-blue-500 hover:to-violet-500 disabled:opacity-50 sm:w-auto sm:px-8"
+            >
+              {downloading ? <LoadingSpinner size="sm" /> : (
+                <>
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l3-3m-3 3l-3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  Download PDF
+                </>
+              )}
+            </button>
+            <p className="text-xs text-text-muted">Free download — no account needed</p>
+          </div>
         )}
       </main>
 
