@@ -451,7 +451,7 @@ function FeaturesBento() {
           {features.map((feature) => (
             <div
               key={feature.title}
-              className={`group relative overflow-hidden rounded-2xl border border-card-border bg-background p-6 transition-all hover:border-indigo-500/20 hover:shadow-[0_20px_50px_-20px_rgba(79,70,229,0.2)] ${feature.span}`}
+              className={`group relative overflow-hidden rounded-2xl border border-card-border bg-background p-6 transition-all duration-200 hover:border-indigo-500/20 hover:shadow-[0_20px_50px_-20px_rgba(79,70,229,0.2)] hover:scale-[1.02] ${feature.span}`}
             >
               <div className={`absolute inset-0 -z-10 bg-gradient-to-br ${feature.color} opacity-0 transition-opacity group-hover:opacity-100`} />
               <div className={`mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br ${feature.color} ${feature.iconColor}`}>
@@ -484,7 +484,7 @@ function TemplatesSection({ templates }: { templates: TemplateInfo[] }) {
           {templates.map((t) => (
             <div
               key={t.id}
-              className="group rounded-2xl border border-card-border bg-card p-4 sm:p-5 transition-all hover:border-indigo-500/20 hover:shadow-[0_20px_50px_-20px_rgba(79,70,229,0.2)]"
+              className="group rounded-2xl border border-card-border bg-card p-4 sm:p-5 transition-all duration-200 hover:border-indigo-500/20 hover:shadow-[0_20px_50px_-20px_rgba(79,70,229,0.2)] hover:scale-[1.02]"
             >
               <div
                 className="mb-3 h-20 sm:h-28 overflow-hidden rounded-xl border border-card-border"
@@ -995,10 +995,10 @@ export default function Home() {
                         <button
                           key={t.id}
                           onClick={() => setTemplateId(t.id)}
-                          className={`group rounded-xl border p-3 text-left transition-all sm:p-4 ${
+                          className={`group rounded-xl border p-3 text-left transition-all duration-200 sm:p-4 ${
                             templateId === t.id
                               ? "border-indigo-500/60 bg-indigo-500/10 ring-1 ring-indigo-500/30"
-                              : "border-card-border bg-background hover:border-indigo-500/30 hover:bg-indigo-500/5"
+                              : "border-card-border bg-background hover:border-indigo-500/30 hover:bg-indigo-500/5 hover:scale-[1.02] hover:shadow-lg"
                           }`}
                         >
                           <div className="mb-2 h-10 overflow-hidden rounded-lg border border-card-border sm:mb-3 sm:h-14"
@@ -1349,7 +1349,7 @@ export default function Home() {
                         <button
                           onClick={() => handleOpenLibraryItem(item)}
                           disabled={busyItemId === item.id}
-                          className="rounded-lg border border-card-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-indigo-500/40 hover:text-indigo-400 disabled:opacity-50"
+                          className="rounded-lg border border-card-border bg-background px-3 py-2 text-xs font-medium text-foreground transition-colors hover:border-indigo-500/40 hover:text-indigo-400 disabled:opacity-50 sm:py-1.5"
                         >
                           Open
                         </button>
@@ -1357,21 +1357,21 @@ export default function Home() {
                           <button
                             onClick={() => handleStoredPdf(item)}
                             disabled={busyItemId === item.id}
-                            className="rounded-lg border border-card-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-indigo-500/40 hover:text-indigo-400 disabled:opacity-50"
+                            className="rounded-lg border border-card-border bg-background px-3 py-2 text-xs font-medium text-foreground transition-colors hover:border-indigo-500/40 hover:text-indigo-400 disabled:opacity-50 sm:py-1.5"
                           >
                             PDF
                           </button>
                         )}
                         <button
                           onClick={() => setShareTarget({ id: item.id, title: item.title })}
-                          className="rounded-lg border border-card-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-indigo-500/40 hover:text-indigo-400"
+                          className="rounded-lg border border-card-border bg-background px-3 py-2 text-xs font-medium text-foreground transition-colors hover:border-indigo-500/40 hover:text-indigo-400 sm:py-1.5"
                         >
                           Share
                         </button>
                         <button
                           onClick={() => handleDeleteLibraryItem(item)}
                           disabled={busyItemId === item.id}
-                          className="rounded-lg px-2 py-1.5 text-xs font-medium text-text-muted transition-colors hover:text-red-400 disabled:opacity-50"
+                          className="rounded-lg px-2 py-2 text-xs font-medium text-text-muted transition-colors hover:text-red-400 disabled:opacity-50 sm:py-1.5"
                           aria-label={`Delete ${item.title}`}
                         >
                           Delete

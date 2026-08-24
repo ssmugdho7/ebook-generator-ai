@@ -106,7 +106,7 @@ export default function LoggedinNav() {
             {/* Mobile menu button */}
             <button
               onClick={logout}
-              className="rounded-lg border border-card-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-accent/40 hover:text-accent md:hidden"
+              className="rounded-lg border border-card-border bg-background px-3 py-2 text-xs font-medium text-foreground transition-colors hover:border-accent/40 hover:text-accent md:hidden sm:py-1.5"
             >
               Sign out
             </button>
