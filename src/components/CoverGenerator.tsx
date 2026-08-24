@@ -60,7 +60,24 @@ export default function CoverGenerator({
     [template]
   );
 
-  const punchOptions = useMemo(() => getPunchOptions(title), [title]);
+  const punchOptions = useMemo(() => {
+    const titleWords = getPunchOptions(title);
+    // Always include common accent words as fallback options
+    const commonWords = [
+      { value: "Guide", label: "Guide" },
+      { value: "Deep Dive", label: "Deep Dive" },
+      { value: "Mastery", label: "Mastery" },
+      { value: "Essentials", label: "Essentials" },
+      { value: "Handbook", label: "Handbook" },
+      { value: "Playbook", label: "Playbook" },
+      { value: "Blueprint", label: "Blueprint" },
+      { value: "Masterclass", label: "Masterclass" },
+    ];
+    // Merge: title words first, then common words (skip duplicates)
+    const seen = new Set(titleWords.map((w) => w.value.toLowerCase()));
+    const extras = commonWords.filter((w) => !seen.has(w.value.toLowerCase()));
+    return [...titleWords, ...extras];
+  }, [title]);
   const [punch, setPunch] = useState<string>(() => {
     const auto = detectPunchWord(title) ?? detectTopic(title).punchFallback;
     return auto ? auto : NONE;
