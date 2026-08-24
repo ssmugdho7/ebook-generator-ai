@@ -842,8 +842,12 @@ export default function Home() {
     <div className="min-h-screen bg-background text-foreground">
       {user ? <LoggedinNav /> : <Navbar onAuthClick={handleAuthClick} />}
 
-      <HeroSection />
-      <StatsBar />
+      {!user && (
+        <>
+          <HeroSection />
+          <StatsBar />
+        </>
+      )}
 
       {/* Generator Section */}
       <section id="generator" className="border-t border-card-border bg-card/30 py-16 sm:py-24">
@@ -1239,7 +1243,7 @@ export default function Home() {
         </div>
       </section>
 
-      {!book && (
+      {!book && !user && (
         <>
           <HowItWorks />
 
