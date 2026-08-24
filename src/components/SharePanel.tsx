@@ -45,8 +45,9 @@ export default function SharePanel({ ebookId, title, coverImage, onClose }: Shar
       .catch((e) => {
         if (!cancelled) {
           const msg = e instanceof Error ? e.message : "Could not load the share status";
-          const isAuth = /401|403|auth|sign in/i.test(msg);
-          setError(isAuth ? "Please sign in to manage sharing." : msg);
+          const status = (e as Error & { status?: number }).status;
+          const isAuth = status === 401 || status === 403 || /401|403|auth|sign in|session expired/i.test(msg);
+          setError(isAuth ? msg : msg);
           setAuthError(isAuth);
         }
       })
@@ -135,14 +136,22 @@ export default function SharePanel({ ebookId, title, coverImage, onClose }: Shar
             </div>
             <h3 className="text-lg font-semibold text-foreground">Sign in required</h3>
             <p className="mt-2 text-sm text-text-muted">
-              You need to be signed in to create and manage share links.
+              {error || "You need to be signed in to create and manage share links."}
             </p>
-            <button
-              onClick={onClose}
-              className="mt-5 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition-all hover:from-indigo-500 hover:to-violet-500"
-            >
-              Sign in to continue
-            </button>
+            <div className="mt-5 flex gap-3">
+              <button
+                onClick={onClose}
+                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition-all hover:from-indigo-500 hover:to-violet-500"
+              >
+                Sign in to continue
+              </button>
+              <button
+                onClick={onClose}
+                className="inline-flex items-center gap-2 rounded-xl border border-card-border px-6 py-2.5 text-sm font-medium text-text-muted transition-colors hover:bg-accent/5 hover:text-foreground"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         ) : share ? (
           /* ------------------------- active link ------------------------- */

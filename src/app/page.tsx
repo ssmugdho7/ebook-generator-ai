@@ -9,6 +9,8 @@ import BookEditor from "@/components/BookEditor";
 import BrandingPanel, { EMPTY_BRANDING } from "@/components/BrandingPanel";
 import AuthModal from "@/components/AuthModal";
 import SharePanel from "@/components/SharePanel";
+import LoggedinNav from "@/components/LoggedinNav";
+import ScrollToTop from "@/components/ScrollToTop";
 import { useAuth } from "@/lib/auth";
 import {
   getTemplates,
@@ -838,7 +840,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <Navbar onAuthClick={handleAuthClick} />
+      {user ? <LoggedinNav /> : <Navbar onAuthClick={handleAuthClick} />}
 
       <HeroSection />
       <StatsBar />
@@ -1279,8 +1281,8 @@ export default function Home() {
         </section>
       )}
 
-      {!book && user && libraryEnabled && library.length > 0 && (
-        <section className="border-t border-card-border bg-card/30 py-16">
+      {!book && user && (
+        <section id="library" className="border-t border-card-border bg-card/30 py-16">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="mx-auto max-w-4xl rounded-2xl border border-card-border bg-background p-6 shadow-sm">
               <div className="mb-4 flex items-center justify-between">
@@ -1289,7 +1291,9 @@ export default function Home() {
                     Your Library
                   </h2>
                   <p className="mt-0.5 text-xs text-text-muted">
-                    Your saved ebooks — open the preview or download the PDF anytime
+                    {library.length > 0
+                      ? "Your saved ebooks — open the preview or download the PDF anytime"
+                      : "No ebooks yet. Create your first ebook above!"}
                   </p>
                 </div>
                 <button
@@ -1300,66 +1304,161 @@ export default function Home() {
                 </button>
               </div>
 
-              <ul className="divide-y divide-card-border">
-                {library.map((item) => (
-                  <li
-                    key={item.id}
-                    className="flex flex-wrap items-center justify-between gap-3 py-3"
+              {library.length === 0 ? (
+                <div className="py-8 text-center">
+                  <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full border border-card-border bg-background">
+                    <svg className="h-6 w-6 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                    </svg>
+                  </div>
+                  <p className="text-sm text-text-muted">Your library is empty</p>
+                  <a
+                    href="#generator"
+                    className="mt-3 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition-all hover:from-indigo-500 hover:to-violet-500"
                   >
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground">
-                        {item.title}
-                      </p>
-                      <p className="mt-0.5 text-xs text-text-muted">
-                        {item.section_count} sections
-                        {item.page_count ? ` · ${item.page_count} pages` : ""} ·{" "}
-                        {item.template_id}
-                        {item.created_at
-                          ? ` · ${new Date(item.created_at).toLocaleDateString()}`
-                          : ""}
-                        {item.has_pdf && (
-                          <span className="ml-2 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-2 py-0.5 text-indigo-400">
-                            PDF saved
-                          </span>
-                        )}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {busyItemId === item.id && <LoadingSpinner size="sm" />}
-                      <button
-                        onClick={() => handleOpenLibraryItem(item)}
-                        disabled={busyItemId === item.id}
-                        className="rounded-lg border border-card-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-indigo-500/40 hover:text-indigo-400 disabled:opacity-50"
-                      >
-                        Open
-                      </button>
-                      {item.has_pdf && (
+                    Create your first ebook
+                  </a>
+                </div>
+              ) : (
+                <ul className="divide-y divide-card-border">
+                  {library.map((item) => (
+                    <li
+                      key={item.id}
+                      className="flex flex-wrap items-center justify-between gap-3 py-3"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-foreground">
+                          {item.title}
+                        </p>
+                        <p className="mt-0.5 text-xs text-text-muted">
+                          {item.section_count} sections
+                          {item.page_count ? ` · ${item.page_count} pages` : ""} ·{" "}
+                          {item.template_id}
+                          {item.created_at
+                            ? ` · ${new Date(item.created_at).toLocaleDateString()}`
+                            : ""}
+                          {item.has_pdf && (
+                            <span className="ml-2 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-2 py-0.5 text-indigo-400">
+                              PDF saved
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {busyItemId === item.id && <LoadingSpinner size="sm" />}
                         <button
-                          onClick={() => handleStoredPdf(item)}
+                          onClick={() => handleOpenLibraryItem(item)}
                           disabled={busyItemId === item.id}
                           className="rounded-lg border border-card-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-indigo-500/40 hover:text-indigo-400 disabled:opacity-50"
                         >
-                          PDF
+                          Open
                         </button>
-                      )}
-                      <button
-                        onClick={() => setShareTarget({ id: item.id, title: item.title })}
-                        className="rounded-lg border border-card-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-indigo-500/40 hover:text-indigo-400"
-                      >
-                        Share
-                      </button>
-                      <button
-                        onClick={() => handleDeleteLibraryItem(item)}
-                        disabled={busyItemId === item.id}
-                        className="rounded-lg px-2 py-1.5 text-xs font-medium text-text-muted transition-colors hover:text-red-400 disabled:opacity-50"
-                        aria-label={`Delete ${item.title}`}
-                      >
-                        Delete
-                      </button>
+                        {item.has_pdf && (
+                          <button
+                            onClick={() => handleStoredPdf(item)}
+                            disabled={busyItemId === item.id}
+                            className="rounded-lg border border-card-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-indigo-500/40 hover:text-indigo-400 disabled:opacity-50"
+                          >
+                            PDF
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setShareTarget({ id: item.id, title: item.title })}
+                          className="rounded-lg border border-card-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-indigo-500/40 hover:text-indigo-400"
+                        >
+                          Share
+                        </button>
+                        <button
+                          onClick={() => handleDeleteLibraryItem(item)}
+                          disabled={busyItemId === item.id}
+                          className="rounded-lg px-2 py-1.5 text-xs font-medium text-text-muted transition-colors hover:text-red-400 disabled:opacity-50"
+                          aria-label={`Delete ${item.title}`}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Guidelines — quick reference for logged-in users */}
+      {!book && user && (
+        <section id="guidelines" className="border-t border-card-border bg-card/30 py-16">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="mx-auto max-w-4xl">
+              <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+                Quick Guide
+              </h2>
+              <p className="mt-2 text-sm text-text-muted">
+                Everything you need to create your first ebook in minutes.
+              </p>
+
+              <div className="mt-8 grid gap-4 sm:grid-cols-2">
+                {[
+                  {
+                    step: "1",
+                    title: "Write your topic",
+                    desc: "Describe what your ebook should be about. Paste notes, code snippets, or just a topic idea.",
+                    color: "from-indigo-500 to-blue-500",
+                  },
+                  {
+                    step: "2",
+                    title: "Pick a design",
+                    desc: "Choose from 4 professional templates — Minimal, Compact, Magazine, or Technical.",
+                    color: "from-violet-500 to-purple-500",
+                  },
+                  {
+                    step: "3",
+                    title: "Generate & preview",
+                    desc: "Click Generate and watch AI craft your ebook. Preview it live before downloading.",
+                    color: "from-emerald-500 to-teal-500",
+                  },
+                  {
+                    step: "4",
+                    title: "Download or share",
+                    desc: "Add a custom cover or branding, then download as PDF or create a shareable link.",
+                    color: "from-amber-500 to-orange-500",
+                  },
+                ].map((item) => (
+                  <div
+                    key={item.step}
+                    className="rounded-2xl border border-card-border bg-background p-5 transition-all hover:border-indigo-500/20 hover:shadow-[0_8px_30px_-12px_rgba(79,70,229,0.2)]"
+                  >
+                    <div className={`mb-3 flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br ${item.color} text-xs font-bold text-white`}>
+                      {item.step}
                     </div>
-                  </li>
+                    <h3 className="text-sm font-semibold text-foreground">{item.title}</h3>
+                    <p className="mt-1 text-xs leading-relaxed text-text-muted">{item.desc}</p>
+                  </div>
                 ))}
-              </ul>
+              </div>
+
+              <div className="mt-8 rounded-2xl border border-card-border bg-background p-5">
+                <h3 className="text-sm font-semibold text-foreground">Pro Tips</h3>
+                <ul className="mt-3 space-y-2 text-xs text-text-muted">
+                  <li className="flex items-start gap-2">
+                    <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-500" />
+                    Use the Book Studio to edit individual sections — expand, simplify, add diagrams, or regenerate.
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-violet-500" />
+                    Add Business Branding to white-label your ebook with your logo and colors.
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+                    Share links are read-only — recipients see the full book but can never edit it.
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                    Bengali translation preserves all structure — code blocks stay in English.
+                  </li>
+                </ul>
+              </div>
             </div>
           </div>
         </section>
@@ -1405,6 +1504,7 @@ export default function Home() {
           onClose={() => setShareTarget(null)}
         />
       )}
+      <ScrollToTop />
     </div>
   );
 }

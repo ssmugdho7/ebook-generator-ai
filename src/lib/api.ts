@@ -270,7 +270,10 @@ export async function getLibrary(
   const res = await fetch(`${API_BASE}/api/library?limit=${limit}`, {
     headers: _authHeaders(),
   });
-  if (!res.ok) return { items: [], database: false };
+  if (!res.ok) {
+    // Return empty instead of failing — library section will show empty state
+    return { items: [], database: false };
+  }
   return res.json();
 }
 
@@ -454,10 +457,28 @@ export interface ShareInfo {
 
 /** Owner-only: current active share for an ebook (null when unpublished). */
 export async function getShareStatus(ebookId: string): Promise<ShareInfo | null> {
+  const tok = _authToken();
+  if (!tok) {
+    const e = new Error("Please sign in to manage sharing.") as Error & { status?: number };
+    e.status = 401;
+    throw e;
+  }
   const res = await fetch(`${API_BASE}/api/library/${encodeURIComponent(ebookId)}/share`, {
     headers: _authHeaders(),
   });
-  if (!res.ok) throw new Error("Could not load the share status");
+  if (!res.ok) {
+    let detail = "Could not load the share status";
+    try {
+      const body = await res.json();
+      detail = body.detail || detail;
+    } catch { /* ignore parse error */ }
+    if (res.status === 401 || res.status === 403) {
+      detail = "Your session expired. Please sign in again.";
+    }
+    const e = new Error(detail) as Error & { status?: number };
+    e.status = res.status;
+    throw e;
+  }
   const data = await res.json();
   return data.share ?? null;
 }

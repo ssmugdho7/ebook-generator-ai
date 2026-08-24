@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import ThemeToggle from "@/components/ThemeToggle";
+import ScrollToTop from "@/components/ScrollToTop";
 import {
   downloadSharedPdf,
   fetchSharedBook,
@@ -249,6 +250,7 @@ export default function SharedReader({ token }: { token: string }) {
         </Link>{" "}
         — create your own AI-written, beautifully typeset ebooks free.
       </footer>
+      <ScrollToTop />
     </div>
   );
 }
