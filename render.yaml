@@ -31,7 +31,7 @@ services:
 
       # --- wiring / tuning ---
       - key: ALLOWED_ORIGINS
-        value: https://ebook-web-h2q3.onrender.com
+        value: https://ebook-web-YOUR-ID.onrender.com  # UPDATE after frontend deploys
       - key: PAGE_VERIFY
         value: "false" # false = fast page estimate (recommended on free/small plans)
       - key: PDF_OUTPUT_DIR
@@ -63,4 +63,4 @@ services:
       # service's host means you never have to copy/paste a URL; the frontend
       # adds https:// automatically when the scheme is missing.
       - key: NEXT_PUBLIC_API_URL
-        value: ebook-api-lr9i.onrender.com
+        value: ebook-api-YOUR-ID.onrender.com  # UPDATE: set to backend service hostname
